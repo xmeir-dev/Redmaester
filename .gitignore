@@ -14,3 +14,4 @@ prisma/dev.db-journal
 .npm-cache
 .redmaester-sync-state.json
 tsconfig.tsbuildinfo
+.vercel
