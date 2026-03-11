@@ -1,23 +1,30 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { prisma } from "@/lib/db/prisma";
 
 type SyncState = {
   fullSyncCursor?: string;
 };
 
-const statePath = join(process.cwd(), ".redmaester-sync-state.json");
-
 export async function loadSyncState(): Promise<SyncState> {
   try {
-    const raw = await readFile(statePath, "utf-8");
-    const parsed = JSON.parse(raw) as SyncState;
-    return parsed ?? {};
+    const row = await prisma.setting.findUnique({
+      where: { key: "fullSyncCursor" },
+    });
+    return row?.value ? { fullSyncCursor: row.value } : {};
   } catch {
     return {};
   }
 }
 
 export async function saveFullSyncCursor(cursor?: string): Promise<void> {
-  const nextState: SyncState = cursor ? { fullSyncCursor: cursor } : {};
-  await writeFile(statePath, JSON.stringify(nextState, null, 2), "utf-8");
+  if (cursor) {
+    await prisma.setting.upsert({
+      where: { key: "fullSyncCursor" },
+      update: { value: cursor },
+      create: { key: "fullSyncCursor", value: cursor },
+    });
+  } else {
+    await prisma.setting.deleteMany({
+      where: { key: "fullSyncCursor" },
+    });
+  }
 }
