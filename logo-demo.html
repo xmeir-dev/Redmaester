@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redmaester Logo Demos</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #111;
+    color: #fff;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 40px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 14px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #666;
+    margin-bottom: 60px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 40px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .option {
+    background: #0a0a0a;
+    border: 1px solid #1a1a1a;
+    border-radius: 12px;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .option:hover {
+    border-color: #c0392b33;
+  }
+
+  .label {
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #444;
+  }
+
+  pre {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    line-height: 1.15;
+    color: #c0392b;
+    text-align: center;
+    white-space: pre;
+  }
+
+  .option:nth-child(1) pre { text-shadow: 0 0 8px #c0392b44; }
+  .option:nth-child(2) pre { text-shadow: 0 0 12px #c0392b33; }
+  .option:nth-child(3) pre { color: #e74c3c; text-shadow: 0 0 6px #e74c3c44; }
+  .option:nth-child(4) pre { text-shadow: 0 0 20px #c0392b22; }
+  .option:nth-child(5) pre { color: #d35400; text-shadow: 0 0 8px #d3540044; }
+  .option:nth-child(6) pre { text-shadow: 0 0 4px #c0392b66; }
+  .option:nth-child(7) pre { color: #e74c3c; }
+  .option:nth-child(8) pre { text-shadow: 0 0 15px #c0392b33; }
+  .option:nth-child(9) pre { color: #b03a2e; text-shadow: 0 0 10px #b03a2e44; }
+  .option:nth-child(10) pre { text-shadow: 0 0 6px #c0392b55; }
+
+  .wordmark {
+    font-size: 11px;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: #c0392b;
+    opacity: 0.7;
+  }
+</style>
+</head>
+<body>
+
+<h1>Redmaester &mdash; Logo Explorations</h1>
+
+<div class="grid">
+
+<!-- 1: Minimal hunched figure, small -->
+<div class="option">
+  <span class="label">01 &mdash; The Scholar</span>
+  <pre>
+       ██
+      ████
+      ████
+     ██████
+    ██  ████
+    ██ █████▓
+    ████████▓▓
+     ████████▓
+      ██████▓
+     ▓██████▓▓
+    ▓▓▓████▓▓▓▓
+   ▓▓  ▓▓▓▓  ▓▓
+       ▓  ▓
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 2: Side profile hunched over desk -->
+<div class="option">
+  <span class="label">02 &mdash; Late Night</span>
+  <pre>
+        ▄██▄
+       ██████
+       ██████
+        ████
+       ██████▄
+      ████████▓
+     ███░░█████▓
+     ██░░░██████
+      ████████▓
+       ██████
+    ▄▄▄██████▄▄▄
+   ████████████████
+   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 3: Pixel art figure with scroll -->
+<div class="option">
+  <span class="label">03 &mdash; The Quill</span>
+  <pre>
+      ▄██▄
+     ██████
+     █▀██▀█
+      ████
+     ██████
+    ████████
+    ██ ██ ██    ╱
+    ██████████╱
+     ████████
+      ██  ██
+      ▀▀  ▀▀
+  ═══════════════
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 4: Cute round character from behind -->
+<div class="option">
+  <span class="label">04 &mdash; Round Sam</span>
+  <pre>
+       ▄████▄
+     ██████████
+    ████████████
+    ████████████
+    ████████████
+     ██████████
+     ██████████
+    ▓▓████████▓▓
+   ▓▓▓▓██████▓▓▓▓
+    ▓▓  ▓▓▓▓  ▓▓
+        ▓▓▓▓
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 5: Tiny 8-bit style -->
+<div class="option">
+  <span class="label">05 &mdash; 8-Bit</span>
+  <pre>
+     ██
+    ████
+    ████
+   ██████
+   █ ██ █
+   ██████
+    ████
+   ██████
+  ████████
+  █ ████ █
+    █  █
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 6: Hunched over books, wider scene -->
+<div class="option">
+  <span class="label">06 &mdash; The Library</span>
+  <pre>
+            ▄██▄
+           ██████
+           ██████
+          ████████
+         ██████████
+        ███░░████████
+       ████░░░████████
+        ██████████████
+    ┌─── ████████████ ───┐
+    │ ▒▒ ▒▒▒▒▒▒▒▒▒▒ ▒▒ │
+    │ ▒▒ ▒▒▒▒▒▒▒▒▒▒ ▒▒ │
+    └────────────────────┘
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 7: Simple icon, like the reference pig -->
+<div class="option">
+  <span class="label">07 &mdash; Pixel Icon</span>
+  <pre>
+    ████████████
+    ████████████
+    ██        ██
+    ██  ▄  ▄  ██
+    ██        ██
+    ██████████████
+    ██████████████
+    ██████████████
+    ██████████████
+      ██  ██  ██
+      ██  ██  ██
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 8: Scroll/book emblem -->
+<div class="option">
+  <span class="label">08 &mdash; The Seal</span>
+  <pre>
+        ╔══════╗
+       ╔╝░░░░░░╚╗
+      ║░░░░░░░░░░║
+      ║░░▄████▄░░║
+      ║░████████░║
+      ║░██▀██▀█░░║
+      ║░░██████░░║
+      ║░████████░║
+       ╚╗░░░░░░╔╝
+        ╚══════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 9: Back view, cloaked -->
+<div class="option">
+  <span class="label">09 &mdash; The Cloak</span>
+  <pre>
+        ▄▄▄▄
+       ██████
+      ████████
+      ████████
+       ██████
+      ████████
+     ██████████
+    ████████████
+   ██████████████
+  ████░░░░░░░░████
+  ████░░░░░░░░████
+   ▀██████████▀
+      ██    ██
+      ▀▀    ▀▀
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 10: Lobster-style badge/circle -->
+<div class="option">
+  <span class="label">10 &mdash; The Badge</span>
+  <pre>
+      ░░░░░░░░░░░░
+    ░░░░░░░░░░░░░░░░
+   ░░░░░░░▄██▄░░░░░░░
+   ░░░░░░██████░░░░░░░
+   ░░░░░░██████░░░░░░░
+   ░░░░░████████░░░░░░
+   ░░░░██░░██████░░░░░
+   ░░░░██░░░██████░░░░
+   ░░░░░█████████░░░░░
+   ░░░░░░██████░░░░░░░
+    ░░░░░░░░░░░░░░░░
+      ░░░░░░░░░░░░
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+</div>
+
+</body>
+</html>

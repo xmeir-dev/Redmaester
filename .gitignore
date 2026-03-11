@@ -1,0 +1,16 @@
+node_modules
+.next
+.next-dev
+.next-dev.*
+.next-prod
+.next_old_*
+.next_web_old_*
+.env
+.env.local
+.DS_Store
+coverage
+prisma/dev.db
+prisma/dev.db-journal
+.npm-cache
+.redmaester-sync-state.json
+tsconfig.tsbuildinfo

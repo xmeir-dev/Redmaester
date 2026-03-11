@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redmaester Logo Demos — Round 5: Minimal Shelves</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #111;
+    color: #fff;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 40px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 14px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #666;
+    margin-bottom: 60px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .option {
+    background: #0a0a0a;
+    border: 1px solid #1a1a1a;
+    border-radius: 12px;
+    padding: 36px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .option:hover { border-color: #c0392b33; }
+
+  .label {
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #444;
+  }
+
+  pre {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8px;
+    line-height: 1.15;
+    color: #c0392b;
+    text-align: center;
+    white-space: pre;
+    text-shadow: 0 0 8px #c0392b44;
+  }
+
+  .option:nth-child(even) pre { color: #e74c3c; text-shadow: 0 0 10px #e74c3c33; }
+
+  .wordmark {
+    font-size: 10px;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: #c0392b;
+    opacity: 0.7;
+  }
+</style>
+</head>
+<body>
+
+<h1>Redmaester &mdash; Round 5: Minimal Bookshelves</h1>
+
+<div class="grid">
+
+<!-- 1: Two shelves, few books -->
+<div class="option">
+  <span class="label">01 &mdash; Two Rows</span>
+  <pre>
+    ╔════════════════════╗
+    ║  █▌ ██ █▌ ██ █▌   ║
+    ║  █▌ ██ █▌ ██ █▌   ║
+    ║  █▌ ██ █▌ ██ █▌   ║
+    ╠════════════════════╣
+    ║  ██ █▌ ██ █▌ ███  ║
+    ║  ██ █▌ ██ █▌ ███  ║
+    ║  ██ █▌ ██ █▌ ███  ║
+    ╚════════════════════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 2: Single shelf -->
+<div class="option">
+  <span class="label">02 &mdash; One Shelf</span>
+  <pre>
+    ╔════════════════════╗
+    ║                    ║
+    ║  █▌ ██ █▌ ██ ███  ║
+    ║  █▌ ██ █▌ ██ ███  ║
+    ║  █▌ ██ █▌ ██ ███  ║
+    ║  █▌ ██ █▌ ██ ███  ║
+    ║  █▌ ██ █▌ ██ ███  ║
+    ║                    ║
+    ╚════════════════════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 3: 3 books only, spaced -->
+<div class="option">
+  <span class="label">03 &mdash; Three Books</span>
+  <pre>
+    ╔════════════════════╗
+    ║                    ║
+    ║   ██   ██   ███   ║
+    ║   ██   ██   ███   ║
+    ║   ██   ██   ███   ║
+    ║   ██   ██   ███   ║
+    ║   ██   ██   ███   ║
+    ║                    ║
+    ╚════════════════════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 4: Two shelves, 3 books each -->
+<div class="option">
+  <span class="label">04 &mdash; Tidy</span>
+  <pre>
+    ╔════════════════════╗
+    ║   █▌  ██  ███     ║
+    ║   █▌  ██  ███     ║
+    ║   █▌  ██  ███     ║
+    ╠════════════════════╣
+    ║   ██  █▌  ██      ║
+    ║   ██  █▌  ██      ║
+    ║   ██  █▌  ██      ║
+    ╚════════════════════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 5: No frame, just books on lines -->
+<div class="option">
+  <span class="label">05 &mdash; Open Shelf</span>
+  <pre>
+     █▌  ██  █▌  ███
+     █▌  ██  █▌  ███
+     █▌  ██  █▌  ███
+     █▌  ██  █▌  ███
+    ══════════════════
+     ██  █▌  ██
+     ██  █▌  ██
+     ██  █▌  ██
+     ██  █▌  ██
+    ══════════════════
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 6: Rounded corners feel, very few books -->
+<div class="option">
+  <span class="label">06 &mdash; Sparse</span>
+  <pre>
+    ╔════════════════════╗
+    ║                    ║
+    ║   ██  █▌          ║
+    ║   ██  █▌          ║
+    ║   ██  █▌          ║
+    ╠════════════════════╣
+    ║                    ║
+    ║       ██  ███     ║
+    ║       ██  ███     ║
+    ║       ██  ███     ║
+    ╚════════════════════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 7: Thin books, one shelf, tight -->
+<div class="option">
+  <span class="label">07 &mdash; Thin Spines</span>
+  <pre>
+    ╔════════════════════╗
+    ║                    ║
+    ║  ▐▌ ▐▌ █ ▐▌ █ ▐▌ ║
+    ║  ▐▌ ▐▌ █ ▐▌ █ ▐▌ ║
+    ║  ▐▌ ▐▌ █ ▐▌ █ ▐▌ ║
+    ║  ▐▌ ▐▌ █ ▐▌ █ ▐▌ ║
+    ║  ▐▌ ▐▌ █ ▐▌ █ ▐▌ ║
+    ║                    ║
+    ╚════════════════════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 8: Two shelves, mixed widths, one book leaning -->
+<div class="option">
+  <span class="label">08 &mdash; Lived In</span>
+  <pre>
+    ╔════════════════════╗
+    ║  █▌ ██ ██▌        ║
+    ║  █▌ ██ ██▌  ╱█    ║
+    ║  █▌ ██ ██▌ ╱██    ║
+    ╠════════════════════╣
+    ║     ██ █▌ ███     ║
+    ║     ██ █▌ ███     ║
+    ║     ██ █▌ ███     ║
+    ╚════════════════════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+<!-- 9: Square, 4 books, symmetric -->
+<div class="option">
+  <span class="label">09 &mdash; Symmetric</span>
+  <pre>
+    ╔════════════════════╗
+    ║                    ║
+    ║  ██  █▌  █▌  ██   ║
+    ║  ██  █▌  █▌  ██   ║
+    ║  ██  █▌  █▌  ██   ║
+    ║  ██  █▌  █▌  ██   ║
+    ║  ██  █▌  █▌  ██   ║
+    ║                    ║
+    ╚════════════════════╝
+  </pre>
+  <span class="wordmark">redmaester</span>
+</div>
+
+</div>
+
+</body>
+</html>

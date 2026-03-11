@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum SyncMode {
+  AUTO
+  FULL
+}
+
+enum SyncStatus {
+  SUCCESS
+  FAILED
+}
+
+enum TriageStatus {
+  OPEN
+  RESOLVED
+}
+
+model AuthToken {
+  id           String   @id @default(cuid())
+  provider     String   @default("x")
+  userId       String
+  username     String?
+  displayName  String?
+  scope        String?
+  tokenType    String?
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([provider, userId])
+}
+
+model Bookmark {
+  id              String                  @id
+  text            String
+  authorHandle    String
+  authorName      String?
+  url             String
+  rawJson         String
+  bookmarkedAt    DateTime
+  syncedAt        DateTime                @default(now())
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  routings        AgentRouting[]
+  triageItems     TriageQueue[]
+  enrichments     BookmarkEnrichment[]
+  classifications BookmarkClassification?
+  skillReferences SkillReference[]
+}
+
+model AgentRouting {
+  id              String           @id @default(cuid())
+  tweetId         String
+  skillName       String
+  department      String?
+  confidence      Float
+  distilledInsight String
+  rationale       String?
+  delivered       Boolean          @default(false)
+  deliveredAt     DateTime?
+  routedAt        DateTime         @default(now())
+  sourceRunId     String?
+  bookmark        Bookmark         @relation(fields: [tweetId], references: [id], onDelete: Cascade)
+  versions        InsightVersion[]
+
+  @@index([tweetId])
+  @@index([skillName])
+  @@unique([tweetId, skillName])
+}
+
+model InsightVersion {
+  id               String       @id @default(cuid())
+  routingId        String
+  distilledInsight String
+  createdAt        DateTime     @default(now())
+  routing          AgentRouting @relation(fields: [routingId], references: [id], onDelete: Cascade)
+}
+
+model TriageQueue {
+  id                String       @id @default(cuid())
+  tweetId           String
+  reason            String
+  details           String?
+  status            TriageStatus @default(OPEN)
+  assignedSkillName String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  resolvedAt        DateTime?
+  bookmark          Bookmark     @relation(fields: [tweetId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([tweetId])
+}
+
+model ModelUsage {
+  id               String   @id @default(cuid())
+  monthKey         String
+  operation        String
+  estimatedCostUsd Float
+  createdAt        DateTime @default(now())
+
+  @@index([monthKey])
+}
+
+model SyncRun {
+  id           String    @id @default(cuid())
+  mode         SyncMode
+  status       SyncStatus
+  notes        String?
+  newBookmarks Int       @default(0)
+  routedCount        Int       @default(0)
+  triagedCount       Int       @default(0)
+  enrichedCount      Int       @default(0)
+  classifiedCount    Int       @default(0)
+  skillsCreated      Int       @default(0)
+  referencesAttached Int       @default(0)
+  startedAt          DateTime  @default(now())
+  finishedAt         DateTime?
+}
+
+model Skill {
+  id               String    @id @default(cuid())
+  name             String    @unique
+  content          String
+  description      String
+  source           String    @default("user")
+  sourceBookmarkId String?
+  fsSyncedAt       DateTime?
+  fsHash           String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  classifications  BookmarkClassification[] @relation("MatchedSkill")
+  references       SkillReference[]
+}
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model BookmarkEnrichment {
+  id            String   @id @default(cuid())
+  bookmarkId    String
+  url           String
+  title         String?
+  content       String?
+  contentLength Int      @default(0)
+  fetchMethod   String
+  fetchError    String?
+  fetchedAt     DateTime @default(now())
+  bookmark      Bookmark @relation(fields: [bookmarkId], references: [id], onDelete: Cascade)
+
+  @@unique([bookmarkId, url])
+  @@index([bookmarkId])
+  @@index([url])
+}
+
+model BookmarkClassification {
+  id                    String   @id @default(cuid())
+  bookmarkId            String   @unique
+  classificationType    String
+  action                String
+  confidence            Float
+  rationale             String?
+  extractedSkillName    String?
+  extractedSkillContent String?
+  matchedSkillId        String?
+  fallback              Boolean  @default(false)
+  sourceRunId           String?
+  classifiedAt          DateTime @default(now())
+  bookmark              Bookmark @relation(fields: [bookmarkId], references: [id], onDelete: Cascade)
+  matchedSkill          Skill?   @relation("MatchedSkill", fields: [matchedSkillId], references: [id], onDelete: SetNull)
+
+  @@index([classificationType])
+}
+
+model SkillReference {
+  id         String   @id @default(cuid())
+  skillId    String
+  bookmarkId String
+  rationale  String?
+  createdAt  DateTime @default(now())
+  skill      Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  bookmark   Bookmark @relation(fields: [bookmarkId], references: [id], onDelete: Cascade)
+
+  @@unique([skillId, bookmarkId])
+  @@index([skillId])
+  @@index([bookmarkId])
+}

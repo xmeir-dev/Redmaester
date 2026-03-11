@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Color scale */
+    --gray-1: 0 0% 99%;
+    --gray-2: 0 0% 97%;
+    --gray-3: 0 0% 94%;
+    --gray-4: 0 0% 90%;
+    --gray-11: 220 9% 35%;
+    --gray-12: 220 13% 13%;
+
+    /* Semantic tokens */
+    --background: var(--gray-1);
+    --foreground: var(--gray-12);
+    --muted: var(--gray-3);
+    --muted-foreground: var(--gray-11);
+    --border: var(--gray-4);
+    --accent: var(--gray-12);
+    --accent-foreground: var(--gray-1);
+    --destructive: 0 72% 42%;
+    --destructive-foreground: 0 0% 99%;
+
+    /* Hairline border — 0.5px on retina */
+    --border-hairline: 1px;
+
+    /* Border radius */
+    --radius: 10px;
+
+    /* Z-index scale */
+    --z-dropdown: 100;
+    --z-modal: 200;
+    --z-tooltip: 300;
+    --z-toast: 400;
+
+    /* Font weights */
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+  }
+
+  @media only screen and (min-device-pixel-ratio: 2),
+    only screen and (min-resolution: 192dpi) {
+    :root {
+      --border-hairline: 0.5px;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+
+  /* 16px minimum on inputs to prevent iOS zoom */
+  input, textarea, select {
+    font-size: 16px;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* Tabular numbers for changing values */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Subtle search clear button */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  height: 10px;
+  width: 10px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(0,0,0,0.3)' stroke-width='1.5' stroke-linecap='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E") center/contain no-repeat;
+  cursor: pointer;
+}
+
+@keyframes dot-wave {
+  0%, 60%, 100% { opacity: 0.2; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
