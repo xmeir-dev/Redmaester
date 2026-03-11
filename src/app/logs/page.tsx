@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AppShell } from "@/components/app-shell";
 import { LogsTabs } from "@/components/logs-tabs";
 import { getLogsData } from "@/lib/domain/queries";

@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AppShell } from "@/components/app-shell";
 import { BookmarkTable, type BookmarkTableRow } from "@/components/bookmark-table";
 import { HomeFilters } from "@/components/home-filters";

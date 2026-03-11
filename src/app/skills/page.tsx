@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AppShell } from "@/components/app-shell";
 import { SkillsList } from "@/components/skills-list";
 import { getSkillsData } from "@/lib/domain/queries";

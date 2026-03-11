@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AppShell } from "@/components/app-shell";
 import { TriageList } from "@/components/triage-list";
 import { getTriageData } from "@/lib/domain/queries";
