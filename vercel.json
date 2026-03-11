@@ -1,4 +1,15 @@
 {
+  "functions": {
+    "src/app/api/bookmarks/count/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/sync/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/classify/route.ts": {
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/auto-sync",
