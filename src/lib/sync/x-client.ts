@@ -248,7 +248,7 @@ class OfficialXClient implements XClient {
 
     const totalLimit = Math.max(1, options.limit);
     const pageSize = Math.max(1, Math.min(100, totalLimit));
-    const maxPages = 1;
+    const maxPages = appConfig.fullSyncMaxPages > 0 ? appConfig.fullSyncMaxPages : Infinity;
 
     const bookmarks: BookmarkInput[] = [];
     let pageCount = 0;
