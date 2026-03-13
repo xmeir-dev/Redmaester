@@ -7,6 +7,7 @@ node_modules
 .next_web_old_*
 .env
 .env.local
+.redmaester-local
 .DS_Store
 coverage
 prisma/dev.db
