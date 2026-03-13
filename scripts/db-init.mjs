@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 
 function resolveSqlitePath(databaseUrl) {
   if (!databaseUrl.startsWith("file:")) {
-    throw new Error("DATABASE_URL must use sqlite file: URL for db:init script.");
+    throw new Error("SQLite DATABASE_URL values must use a file: URL.");
   }
 
   const rawPath = databaseUrl.slice("file:".length);
@@ -17,6 +17,23 @@ function resolveSqlitePath(databaseUrl) {
   }
 
   return resolve(process.cwd(), rawPath);
+}
+
+function isSqliteUrl(databaseUrl) {
+  return databaseUrl.startsWith("file:");
+}
+
+function isRemoteDatabaseUrl(databaseUrl) {
+  if (isSqliteUrl(databaseUrl)) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(databaseUrl);
+    return !["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+  } catch {
+    return true;
+  }
 }
 
 function safeUnlink(path) {
@@ -62,6 +79,7 @@ function loadDotEnv(filePath) {
   }
 }
 
+loadDotEnv(join(process.cwd(), ".env.local"));
 loadDotEnv(join(process.cwd(), ".env"));
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -69,27 +87,48 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is not set.");
 }
 
-const dbPath = resolveSqlitePath(databaseUrl);
-mkdirSync(dirname(dbPath), { recursive: true });
+const allowRemoteReset = (process.env.ALLOW_REMOTE_DB_INIT ?? "false").toLowerCase() === "true";
+if (isRemoteDatabaseUrl(databaseUrl) && !allowRemoteReset) {
+  throw new Error(
+    "db:init refuses to reset a remote database. Point DATABASE_URL at a local database or rerun with ALLOW_REMOTE_DB_INIT=true if you explicitly want to wipe the configured remote database."
+  );
+}
 
-safeUnlink(dbPath);
-safeUnlink(`${dbPath}-journal`);
+const prismaEnv = {
+  ...process.env,
+  DATABASE_URL: databaseUrl,
+  DIRECT_URL: databaseUrl
+};
+
+let targetLabel = databaseUrl;
+if (isSqliteUrl(databaseUrl)) {
+  const dbPath = resolveSqlitePath(databaseUrl);
+  mkdirSync(dirname(dbPath), { recursive: true });
+
+  safeUnlink(dbPath);
+  safeUnlink(`${dbPath}-journal`);
+  targetLabel = dbPath;
+}
+
+run("npx", ["prisma", "db", "push", "--force-reset", "--skip-generate"], {
+  stdio: "inherit",
+  env: prismaEnv
+});
 
 const sql = run("npx", [
   "prisma",
   "migrate",
   "diff",
   "--from-empty",
-  "--to-schema-datamodel",
-  "prisma/schema.prisma",
+  "--to-url",
+  databaseUrl,
   "--script"
-]);
+], {
+  env: prismaEnv
+});
 
 writeFileSync(join(process.cwd(), "prisma/init.sql"), sql, "utf8");
 
-run("npx", ["prisma", "db", "execute", "--file", "prisma/init.sql", "--url", databaseUrl], {
-  stdio: "inherit"
-});
 run("npx", ["prisma", "generate"], { stdio: "inherit" });
 
-console.log(`Database initialized at ${dbPath}`);
+console.log(`Database initialized at ${targetLabel}`);

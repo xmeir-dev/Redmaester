@@ -23,6 +23,17 @@ enum TriageStatus {
   RESOLVED
 }
 
+enum SkillKind {
+  MASTER
+  MICRO
+}
+
+enum BookmarkRoleType {
+  REFERENCE
+  MICRO_SKILL
+  IGNORE
+}
+
 model AuthToken {
   id           String   @id @default(cuid())
   provider     String   @default("x")
@@ -56,6 +67,7 @@ model Bookmark {
   enrichments     BookmarkEnrichment[]
   classifications BookmarkClassification?
   skillReferences SkillReference[]
+  bucketAssignments BookmarkBucketAssignment[]
 }
 
 model AgentRouting {
@@ -134,12 +146,18 @@ model Skill {
   content          String
   description      String
   source           String    @default("user")
+  kind             SkillKind @default(MICRO)
+  bucketId         String?
+  parentSkillId    String?
   sourceBookmarkId String?
   fsSyncedAt       DateTime?
   fsHash           String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
-  classifications  BookmarkClassification[] @relation("MatchedSkill")
+  bucket           Bucket?   @relation(fields: [bucketId], references: [id], onDelete: SetNull)
+  parentSkill      Skill?    @relation("SkillHierarchy", fields: [parentSkillId], references: [id], onDelete: SetNull)
+  childSkills      Skill[]   @relation("SkillHierarchy")
+  targetClassifications BookmarkClassification[] @relation("TargetSkill")
   references       SkillReference[]
 }
 
@@ -147,6 +165,34 @@ model Setting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model Bucket {
+  id                      String                     @id @default(cuid())
+  name                    String                     @unique
+  displayName             String
+  description             String
+  dirtySince              DateTime?
+  lastMasterSynthesizedAt DateTime?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  bookmarkAssignments     BookmarkBucketAssignment[]
+  skills                  Skill[]
+  classifications         BookmarkClassification[]
+}
+
+model BookmarkBucketAssignment {
+  id         String   @id @default(cuid())
+  bookmarkId String
+  bucketId   String
+  isPrimary  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  bookmark   Bookmark @relation(fields: [bookmarkId], references: [id], onDelete: Cascade)
+  bucket     Bucket   @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+
+  @@unique([bookmarkId, bucketId])
+  @@index([bookmarkId])
+  @@index([bucketId])
 }
 
 model BookmarkEnrichment {
@@ -171,18 +217,23 @@ model BookmarkClassification {
   bookmarkId            String   @unique
   classificationType    String
   action                String
+  bucketId              String?
+  roleType              BookmarkRoleType?
+  targetSkillId         String?
   confidence            Float
   rationale             String?
   extractedSkillName    String?
   extractedSkillContent String?
-  matchedSkillId        String?
   fallback              Boolean  @default(false)
   sourceRunId           String?
   classifiedAt          DateTime @default(now())
   bookmark              Bookmark @relation(fields: [bookmarkId], references: [id], onDelete: Cascade)
-  matchedSkill          Skill?   @relation("MatchedSkill", fields: [matchedSkillId], references: [id], onDelete: SetNull)
+  bucket                Bucket?  @relation(fields: [bucketId], references: [id], onDelete: SetNull)
+  targetSkill           Skill?   @relation("TargetSkill", fields: [targetSkillId], references: [id], onDelete: SetNull)
 
   @@index([classificationType])
+  @@index([bucketId])
+  @@index([roleType])
 }
 
 model SkillReference {
