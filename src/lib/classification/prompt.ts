@@ -1,113 +1,203 @@
-import type { Bookmark, BookmarkEnrichment, Skill } from "@prisma/client";
+import type { Bookmark, BookmarkEnrichment, Bucket, Skill } from "@prisma/client";
+import type { BucketTier } from "@/lib/settings/service";
 
-const MAX_ENRICHMENT_CHARS = 8000;
+const MAX_ENRICHMENT_CHARS = 8_000;
 
 function truncateContent(content: string | null, maxLength: number): string {
   if (!content) return "";
   if (content.length <= maxLength) return content;
-  return content.slice(0, maxLength) + "\n[truncated]";
+  return `${content.slice(0, maxLength)}\n[truncated]`;
 }
 
-type SkillSummary = Pick<Skill, "name" | "description">;
+function buildEnrichmentBlock(enrichments: BookmarkEnrichment[]): string {
+  return enrichments
+    .filter((enrichment) => enrichment.content && enrichment.fetchMethod !== "failed")
+    .map((enrichment) => {
+      const title = enrichment.title ? ` — ${enrichment.title}` : "";
+      return `### Linked URL: ${enrichment.url}${title}\n${truncateContent(enrichment.content, MAX_ENRICHMENT_CHARS)}`;
+    })
+    .join("\n\n");
+}
 
-export function buildClassificationPrompt(
+type BucketSummary = Pick<Bucket, "name" | "displayName" | "description"> & {
+  tier?: BucketTier;
+};
+
+export function buildBucketClassificationPrompt(
   bookmark: Bookmark,
   enrichments: BookmarkEnrichment[],
-  existingSkills: SkillSummary[]
+  existingBuckets: BucketSummary[]
 ): string {
-  const enrichmentBlock = enrichments
-    .filter((e) => e.content && e.fetchMethod !== "failed")
-    .map(
-      (e) =>
-        `### Linked URL: ${e.url}${e.title ? ` — ${e.title}` : ""}\n${truncateContent(e.content, MAX_ENRICHMENT_CHARS)}`
-    )
-    .join("\n\n");
+  const enrichmentBlock = buildEnrichmentBlock(enrichments);
+  const realBuckets = existingBuckets.filter((bucket) => bucket.tier === "REAL");
+  const suggestedBuckets = existingBuckets.filter((bucket) => bucket.tier !== "REAL");
+  const realBucketList = realBuckets.length > 0
+    ? realBuckets
+        .map(
+          (bucket) =>
+            `- ${bucket.name} (${bucket.displayName}): ${bucket.description}`,
+        )
+        .join("\n")
+    : "(no real buckets yet)";
+  const suggestedBucketList = suggestedBuckets.length > 0
+    ? suggestedBuckets
+        .map(
+          (bucket) =>
+            `- ${bucket.name} (${bucket.displayName}): ${bucket.description}`,
+        )
+        .join("\n")
+    : "(no suggested buckets yet)";
 
-  const skillList =
-    existingSkills.length > 0
-      ? existingSkills.map((s) => `- **${s.name}**: ${s.description}`).join("\n")
-      : "(no skills registered yet)";
+  return `You are organizing bookmarked X posts into domain buckets and deciding whether each bookmark is a reference or a micro-skill.
 
-  return `You are a bookmark classifier. Analyze the following bookmarked tweet and its linked content to determine its classification.
+## Goal
 
-## Domain Context
+For this one bookmark, decide:
+1. The most appropriate primary bucket.
+2. Whether the bookmark is:
+   - REFERENCE: useful supporting material for a bucket or an existing strategy.
+   - MICRO_SKILL: a distinct reusable tactic, strategy, playbook, or workflow.
+   - IGNORE: not useful enough for this knowledge system.
 
-This system collects bookmarks about AI agent skills, Claude Code configurations, system prompts, agent instruction files, and related tooling. The user is actively building a collection of agent skills. Err on the side of capturing relevant content rather than discarding it — a false positive that lands in triage is far less costly than missing a genuine skill or reference.
+## Rules
 
-## Classification Types
+- A bookmark may create a MICRO_SKILL from a single strong source.
+- Prefer REFERENCE when the bookmark is informative but not directly reusable as a tactic.
+- Prefer MICRO_SKILL when the bookmark contains a concrete, reusable strategy or operating pattern.
+- Prefer an existing REAL bucket when it is semantically close, even if the wording is broader than the source bookmark.
+- Only create or reuse a SUGGESTED bucket when no REAL bucket is a good fit.
+- If a new bucket is needed, invent a short kebab-case name.
+- Keep bucket names broad. Keep micro-skill names more specific.
+- The bucket should be the bookmark's primary home in the system.
 
-1. **skill** — The bookmark contains prescriptive agent instructions: a system prompt, an agent configuration file (SKILL.md), or a detailed "how an agent should behave" specification. It is NOT an article ABOUT agents or AI — it must contain actual instructions that could be directly used as an agent's operating manual.
+## Real Buckets
 
-2. **reference** — The bookmark contains information relevant to one of the existing skills listed below, OR it contains substantial content about AI agents, skills, prompting, or Claude that would be valuable reference material. It could be useful background knowledge, a relevant article, a case study, or data that an existing skill's agent should know about.
+${realBucketList}
 
-3. **unrelated** — The bookmark does not fit either category above. It is clearly off-topic (personal content, unrelated tech, news, etc.).
+## Suggested Buckets
 
-## Decision Rules
-
-- When torn between skill and reference → prefer **skill** if content contains prescriptive instructions (directives, constraints, behavioral rules)
-- When torn between skill and unrelated → prefer **skill** if content contains any agent instruction patterns
-- When torn between reference and unrelated → prefer **reference** if content is clearly about AI agents, skills, prompting, or Claude
-- "reference" SHOULD match an existing skill name if one fits — but if no existing skill matches, you may suggest a new skill name using "suggestedSkillName"
-- A blog post ABOUT prompt engineering is a **reference** (not unrelated), even if no existing skill matches
-- A system prompt or agent config IS a skill
-
-## Existing Skills
-
-${skillList}
+${suggestedBucketList}
 
 ## Bookmark
 
-**Author:** @${bookmark.authorHandle}${bookmark.authorName ? ` (${bookmark.authorName})` : ""}
-**Text:** ${bookmark.text}
-**URL:** ${bookmark.url}
-**Bookmarked:** ${bookmark.bookmarkedAt.toISOString()}
+Author: @${bookmark.authorHandle}${bookmark.authorName ? ` (${bookmark.authorName})` : ""}
+Text: ${bookmark.text}
+URL: ${bookmark.url}
+Bookmarked: ${bookmark.bookmarkedAt.toISOString()}
 
 ${enrichmentBlock ? `## Linked Content\n\n${enrichmentBlock}` : ""}
 
 ## Response Format
 
-Return a JSON object (no markdown fencing):
+Return JSON only:
 {
-  "type": "skill" | "reference" | "unrelated",
+  "bucketName": "<kebab-case bucket name>",
+  "bucketDisplayName": "<human bucket name>",
+  "bucketDescription": "<one sentence bucket description>",
+  "roleType": "REFERENCE" | "MICRO_SKILL" | "IGNORE",
+  "microSkillName": "<optional kebab-case micro skill name when roleType is MICRO_SKILL>",
   "confidence": <number 0-1>,
-  "rationale": "<one sentence explaining the classification>",
-  "skillName": "<kebab-case name if type=skill, e.g. 'code-reviewer'>",
-  "matchedSkillName": "<exact name from existing skills list if type=reference>",
-  "suggestedSkillName": "<kebab-case name if type=reference and no existing skill matches, e.g. 'prompt-engineering'>"
+  "rationale": "<one sentence>"
 }`;
 }
 
-export function buildSkillExtractionPrompt(
-  bookmark: Bookmark,
-  enrichments: BookmarkEnrichment[]
-): string {
-  const enrichmentBlock = enrichments
-    .filter((e) => e.content && e.fetchMethod !== "failed")
-    .map(
-      (e) =>
-        `### Source: ${e.url}${e.title ? ` — ${e.title}` : ""}\n${truncateContent(e.content, MAX_ENRICHMENT_CHARS)}`
-    )
-    .join("\n\n");
+export function buildMicroSkillPrompt(input: {
+  bookmark: Bookmark;
+  enrichments: BookmarkEnrichment[];
+  bucket: Bucket;
+  existingSkill?: Pick<Skill, "name" | "content" | "description">;
+  skillName: string;
+}): string {
+  const enrichmentBlock = buildEnrichmentBlock(input.enrichments);
+  const existingSkillBlock = input.existingSkill
+    ? `## Existing Micro-Skill\n\nName: ${input.existingSkill.name}\n\n${truncateContent(input.existingSkill.content, MAX_ENRICHMENT_CHARS)}`
+    : "";
 
-  return `Extract the agent instruction content from the following bookmark into a clean SKILL.md format.
+  return `Create or update a reusable micro-skill for the ${input.bucket.displayName} bucket.
 
-The output should be a complete, self-contained agent instruction file that could be saved as SKILL.md. Include:
-- A clear role/identity section
-- Key responsibilities and behaviors
-- Any constraints or guidelines
-- Knowledge domains the agent should focus on
+## Intent
 
-If the content is a system prompt, preserve its intent but format it cleanly.
-If the content describes an agent's behavior, convert it into directive instructions.
+- A micro-skill is a narrow, reusable tactic or strategy.
+- Keep it specific and operational.
+- Preserve the strongest actionable ideas from the source bookmark.
+- If an existing micro-skill is provided, improve it without making it overly broad.
+
+## Bucket Context
+
+Bucket: ${input.bucket.displayName}
+Bucket description: ${input.bucket.description}
+Target micro-skill name: ${input.skillName}
 
 ## Source Bookmark
 
-**Author:** @${bookmark.authorHandle}
-**Text:** ${bookmark.text}
+Author: @${input.bookmark.authorHandle}
+Text: ${input.bookmark.text}
+URL: ${input.bookmark.url}
 
 ${enrichmentBlock ? `## Linked Content\n\n${enrichmentBlock}` : ""}
 
+${existingSkillBlock}
+
 ## Output
 
-Return ONLY the SKILL.md content, nothing else. Start with a # heading for the skill name.`;
+Return ONLY the SKILL.md content. Start with a # heading that names the micro-skill.`;
+}
+
+type ReferenceRecord = {
+  tweetId: string;
+  authorHandle: string;
+  text: string;
+  url: string;
+  rationale?: string | null;
+};
+
+export function buildMasterSkillPrompt(input: {
+  bucket: Bucket;
+  masterSkill: Pick<Skill, "name" | "content" | "description">;
+  microSkills: Array<Pick<Skill, "name" | "description" | "content">>;
+  references: ReferenceRecord[];
+}): string {
+  const microSkillBlock = input.microSkills.length > 0
+    ? input.microSkills
+      .map((skill) => `### ${skill.name}\n${skill.description}\n\n${truncateContent(skill.content, 2_400)}`)
+      .join("\n\n")
+    : "(no micro-skills yet)";
+
+  const referenceBlock = input.references.length > 0
+    ? input.references
+      .map((reference, index) =>
+        `${index + 1}. tweet_id=${reference.tweetId} @${reference.authorHandle}\ntext=${reference.text}\nurl=${reference.url}${reference.rationale ? `\nrationale=${reference.rationale}` : ""}`
+      )
+      .join("\n\n")
+    : "(no new reference bookmarks)";
+
+  return `Update the living master skill for the ${input.bucket.displayName} bucket.
+
+## Goal
+
+- Produce one durable SKILL.md-style master skill for this bucket.
+- Synthesize the bucket's recurring ideas, frameworks, and strategy patterns.
+- Integrate useful reference material without turning the master skill into a dump of notes.
+- Use the micro-skills as the sharper tactical sub-components inside the bucket.
+
+## Bucket
+
+Name: ${input.bucket.displayName}
+Description: ${input.bucket.description}
+
+## Existing Master Skill
+
+${truncateContent(input.masterSkill.content, 6_000)}
+
+## Current Micro-Skills
+
+${microSkillBlock}
+
+## Recent Reference Bookmarks
+
+${referenceBlock}
+
+## Output
+
+Return ONLY the updated SKILL.md content for the master skill. Start with a # heading for ${input.bucket.displayName}.`;
 }

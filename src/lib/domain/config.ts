@@ -36,15 +36,22 @@ function parseScopes(value: string | undefined): string[] {
 }
 
 export const appConfig = {
-  monthlyBudgetUsd: parseNumber(process.env.MONTHLY_BUDGET_USD, 50),
+  monthlyBudgetUsd: parseNumber(process.env.MONTHLY_BUDGET_USD, 30),
   estimatedRouteCostUsd: parseNumber(process.env.ESTIMATED_ROUTE_COST_USD, 0.005),
   autoSyncIntervalMinutes: parseNumber(process.env.AUTO_SYNC_INTERVAL_MINUTES, 5),
+  initialSyncDefaultLimit: parseUnlimited(process.env.INITIAL_SYNC_DEFAULT_LIMIT, 500),
+  backfillChunkLimit: parseUnlimited(process.env.BACKFILL_CHUNK_LIMIT, 500),
+  autoSyncLookbackLimit: parseUnlimited(process.env.AUTO_SYNC_LOOKBACK_LIMIT, 500),
   fullSyncPageSize: parseNumber(process.env.FULL_SYNC_PAGE_SIZE, 50),
   fullSyncMaxPages: parseUnlimited(process.env.FULL_SYNC_MAX_PAGES, 20),
   fullSyncMaxBookmarks: parseUnlimited(process.env.FULL_SYNC_MAX_BOOKMARKS, 1000),
   routingConfidenceThreshold: parseNumber(process.env.ROUTING_CONFIDENCE_THRESHOLD, 0.65),
   routingModelTimeoutMs: parseNumber(process.env.ROUTING_MODEL_TIMEOUT_MS, 5000),
   routingModel: process.env.ROUTING_MODEL ?? "claude-sonnet-4-6",
+  bookmarkClassificationModel:
+    process.env.BOOKMARK_CLASSIFICATION_MODEL ?? "claude-3-haiku-20240307",
+  microSkillModel: process.env.MICRO_SKILL_MODEL ?? "claude-sonnet-4-6",
+  masterSkillModel: process.env.MASTER_SKILL_MODEL ?? "claude-sonnet-4-6",
   chatModelTimeoutMs: parseNumber(process.env.CHAT_MODEL_TIMEOUT_MS, 60000),
   chatModel: process.env.CHAT_MODEL ?? process.env.ROUTING_MODEL ?? "claude-sonnet-4-6",
   chatEvidenceLimit: parseNumber(process.env.CHAT_EVIDENCE_LIMIT, 220),
@@ -61,6 +68,8 @@ export const appConfig = {
   classificationReviewThreshold: parseNumber(process.env.CLASSIFICATION_REVIEW_THRESHOLD, 0.40),
   classificationReferenceThreshold: parseNumber(process.env.CLASSIFICATION_REFERENCE_THRESHOLD, 0.50),
   estimatedClassificationCostUsd: parseNumber(process.env.ESTIMATED_CLASSIFICATION_COST_USD, 0.03),
+  estimatedMicroSkillCostUsd: parseNumber(process.env.ESTIMATED_MICRO_SKILL_COST_USD, 0.08),
+  estimatedMasterSkillCostUsd: parseNumber(process.env.ESTIMATED_MASTER_SKILL_COST_USD, 0.12),
   enrichmentFetchTimeoutMs: parseNumber(process.env.ENRICHMENT_FETCH_TIMEOUT_MS, 10000),
   enrichmentMaxUrls: parseNumber(process.env.ENRICHMENT_MAX_URLS, 5),
   playwrightTimeoutMs: parseNumber(process.env.PLAYWRIGHT_TIMEOUT_MS, 30000),

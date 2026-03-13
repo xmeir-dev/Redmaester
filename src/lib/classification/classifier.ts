@@ -1,46 +1,106 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Bookmark, BookmarkEnrichment, Skill } from "@prisma/client";
+import type { Bookmark, BookmarkEnrichment, Bucket, Skill } from "@prisma/client";
+import type { BucketTier } from "@/lib/settings/service";
 import { z } from "zod";
 
+import { toDisplayName, toKebabCase } from "@/lib/buckets/service";
 import { calculateAnthropicCostUsd, normalizeAnthropicUsage } from "@/lib/ai/pricing";
 import { appConfig } from "@/lib/domain/config";
 import type { ModelUsageSnapshot } from "@/lib/domain/types";
 import {
-  buildClassificationPrompt,
-  buildSkillExtractionPrompt
+  buildBucketClassificationPrompt,
+  buildMasterSkillPrompt,
+  buildMicroSkillPrompt
 } from "@/lib/classification/prompt";
 
-export type ClassificationOutput = {
-  type: "skill" | "reference" | "unrelated";
+export type BucketedClassificationOutput = {
+  bucketName: string;
+  bucketDisplayName: string;
+  bucketDescription: string;
+  roleType: "REFERENCE" | "MICRO_SKILL" | "IGNORE";
   confidence: number;
   rationale: string;
-  skillName?: string;
-  suggestedSkillName?: string;
-  matchedSkillName?: string;
-  matchedSkillId?: string;
-  extractedSkillContent?: string;
+  microSkillName?: string;
   fallback: boolean;
   usage?: ModelUsageSnapshot;
 };
 
-type SkillSummary = Pick<Skill, "id" | "name" | "description">;
+type BucketSummary = Pick<Bucket, "id" | "name" | "displayName" | "description"> & {
+  tier?: BucketTier;
+};
 
 const classificationSchema = z.object({
-  type: z.enum(["skill", "reference", "unrelated"]),
+  bucketName: z.string().min(1),
+  bucketDisplayName: z.string().min(1).optional(),
+  bucketDescription: z.string().min(1).optional(),
+  roleType: z.enum(["REFERENCE", "MICRO_SKILL", "IGNORE"]),
+  microSkillName: z.string().nullable().optional().transform((value) => value ?? undefined),
   confidence: z.number().min(0).max(1),
   rationale: z.string().min(1),
-  skillName: z.string().nullable().optional().transform((v) => v ?? undefined),
-  matchedSkillName: z.string().nullable().optional().transform((v) => v ?? undefined),
-  suggestedSkillName: z.string().nullable().optional().transform((v) => v ?? undefined)
 });
+
+const BUCKET_KEYWORDS: Array<{
+  bucketName: string;
+  bucketDescription: string;
+  tokens: string[];
+}> = [
+  {
+    bucketName: "polymarket",
+    bucketDescription: "Trading, market structure, prediction markets, and Polymarket strategies.",
+    tokens: ["polymarket", "prediction market", "orderbook", "arb", "arbing", "market making"],
+  },
+  {
+    bucketName: "ux-ui",
+    bucketDescription: "UX research, interface design, onboarding, copy, and product experience patterns.",
+    tokens: ["ux", "ui", "figma", "interface", "onboarding", "design", "user experience", "prototype"],
+  },
+  {
+    bucketName: "growth",
+    bucketDescription: "Growth loops, acquisition, retention, messaging, and distribution ideas.",
+    tokens: ["growth", "acquisition", "retention", "distribution", "seo", "conversion", "messaging"],
+  },
+  {
+    bucketName: "agents",
+    bucketDescription: "AI agents, prompting, automation, system prompts, and skill design.",
+    tokens: ["agent", "agents", "prompt", "skill", "skill.md", "claude", "automation", "system prompt"],
+  },
+  {
+    bucketName: "product",
+    bucketDescription: "Product strategy, roadmap, pricing, positioning, and product-management ideas.",
+    tokens: ["product", "pricing", "positioning", "roadmap", "feature", "launch", "pmf"],
+  }
+];
+
+const MICRO_SKILL_HINTS = [
+  "strategy",
+  "playbook",
+  "workflow",
+  "framework",
+  "checklist",
+  "how to",
+  "system prompt",
+  "template",
+  "tactic",
+  "setup",
+  "steps",
+];
+
+const IGNORE_HINTS = [
+  "recipe",
+  "football",
+  "nba",
+  "weather",
+  "vacation",
+  "movie review",
+];
 
 function textFromContent(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
     .map((block) => {
       if (!block || typeof block !== "object") return "";
-      const b = block as { type?: string; text?: string };
-      return b.type === "text" ? (b.text ?? "") : "";
+      const value = block as { type?: string; text?: string };
+      return value.type === "text" ? (value.text ?? "") : "";
     })
     .join("\n")
     .trim();
@@ -53,118 +113,89 @@ function parseJsonFromOutput(text: string): unknown {
   return JSON.parse(candidate);
 }
 
-// Keyword heuristic patterns for fallback classification
-const SKILL_KEYWORDS = [
-  "system prompt",
-  "you are a",
-  "you are an",
-  "skill.md",
-  "your role is",
-  "act as a",
-  "act as an",
-  "your task is",
-  "## instructions",
-  "## role",
-  "## identity",
-  "claude skill",
-  "agent configuration",
-  "custom instruction",
-  "claude code skill",
-  "mcp server",
-  "## constraints",
-  "## capabilities",
-  "you must always",
-  "respond as"
-];
+function normalizeUsage(model: string, response: Awaited<ReturnType<Anthropic["messages"]["create"]>>): ModelUsageSnapshot {
+  const usage = normalizeAnthropicUsage("usage" in response ? response.usage : undefined);
+  return {
+    model,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheCreationInputTokens: usage.cacheCreationInputTokens,
+    cacheReadInputTokens: usage.cacheReadInputTokens,
+    costUsd: calculateAnthropicCostUsd(model, usage)
+  };
+}
 
-const REFERENCE_KEYWORDS = [
-  "prompt engineering",
-  "building skills",
-  "agent design",
-  "guide to",
-  "agentic",
-  "best practices",
-  "how to build",
-  "claude code",
-  "system prompt",
-  "agent instruction",
-  "skill configuration"
-];
+function buildFallbackContent(title: string, body: string, sections: string[]): string {
+  return [`# ${title}`, "", ...sections.flatMap((section) => [section, ""]), body.trim()].join("\n").trim();
+}
 
-function fallbackClassify(
+function fallbackBucketClassification(
   bookmark: Bookmark,
   enrichments: BookmarkEnrichment[],
-  existingSkills: SkillSummary[]
-): ClassificationOutput {
-  const allText = [
-    bookmark.text,
-    ...enrichments
-      .filter((e) => e.content)
-      .map((e) => e.content!)
-  ]
+  existingBuckets: BucketSummary[]
+): BucketedClassificationOutput {
+  const text = [bookmark.text, ...enrichments.map((enrichment) => enrichment.content ?? "")]
     .join(" ")
     .toLowerCase();
 
-  // Check for skill patterns
-  const skillHits = SKILL_KEYWORDS.filter((kw) => allText.includes(kw));
-  if (skillHits.length >= 2) {
-    return {
-      type: "skill",
-      confidence: Math.min(0.7, 0.4 + skillHits.length * 0.1),
-      rationale: `Keyword heuristic: matched ${skillHits.length} skill patterns (${skillHits.slice(0, 3).join(", ")})`,
-      fallback: true
-    };
-  }
+  const matchedKeywordBucket = BUCKET_KEYWORDS.find((bucket) =>
+    bucket.tokens.some((token) => text.includes(token))
+  );
 
-  // Check for reference to existing skills
-  for (const skill of existingSkills) {
-    if (skill.id.startsWith("__seed__")) continue; // Skip seed skills for keyword matching
-    const nameTokens = skill.name.split("-");
-    const hits = nameTokens.filter((t) => t.length >= 3 && allText.includes(t));
-    if (hits.length >= 2 || (nameTokens.length === 1 && hits.length === 1 && hits[0].length >= 5)) {
-      return {
-        type: "reference",
-        confidence: 0.5,
-        rationale: `Keyword heuristic: content mentions terms related to skill "${skill.name}"`,
-        matchedSkillName: skill.name,
-        matchedSkillId: skill.id,
-        fallback: true
-      };
+  const prioritizedExistingBuckets = [...existingBuckets].sort((a, b) => {
+    if ((a.tier ?? "SUGGESTED") === (b.tier ?? "SUGGESTED")) {
+      return 0;
     }
-  }
+    return (a.tier ?? "SUGGESTED") === "REAL" ? -1 : 1;
+  });
 
-  // Check for reference keywords — domain-relevant content about skills/agents
-  const refHits = REFERENCE_KEYWORDS.filter((kw) => allText.includes(kw));
-  if (refHits.length >= 2) {
-    return {
-      type: "skill",
-      confidence: 0.50,
-      rationale: `Keyword heuristic: matched ${refHits.length} reference patterns (${refHits.slice(0, 3).join(", ")}) — likely domain-relevant content`,
-      fallback: true
-    };
-  }
+  const matchedExistingBucket = prioritizedExistingBuckets.find((bucket) =>
+    text.includes(bucket.name) || text.includes(bucket.displayName.toLowerCase())
+  );
+
+  const bucketName = matchedExistingBucket?.name ?? matchedKeywordBucket?.bucketName ?? "general";
+  const bucketDisplayName = matchedExistingBucket?.displayName ?? toDisplayName(bucketName);
+  const bucketDescription =
+    matchedExistingBucket?.description ??
+    matchedKeywordBucket?.bucketDescription ??
+    `Knowledge bucket for ${bucketDisplayName}.`;
+
+  const roleType = IGNORE_HINTS.some((token) => text.includes(token))
+    ? "IGNORE"
+    : MICRO_SKILL_HINTS.some((token) => text.includes(token))
+      ? "MICRO_SKILL"
+      : "REFERENCE";
+
+  const microSkillName = roleType === "MICRO_SKILL"
+    ? toKebabCase(`${bucketName}-${bookmark.text.split(/\s+/).slice(0, 6).join(" ")}`)
+    : undefined;
 
   return {
-    type: "unrelated",
-    confidence: 0.8,
-    rationale: "No skill or reference patterns detected (keyword fallback)",
+    bucketName,
+    bucketDisplayName,
+    bucketDescription,
+    roleType,
+    confidence: roleType === "IGNORE" ? 0.55 : 0.62,
+    rationale: "Keyword fallback classification.",
+    microSkillName,
     fallback: true
   };
 }
 
-async function callClassificationAPI(
-  client: Anthropic,
+async function callJsonModel<T>(
+  model: string,
   prompt: string,
   timeoutMs: number,
-  existingSkills: SkillSummary[]
-): Promise<{ parsed: z.infer<typeof classificationSchema>; model: string; usage: ModelUsageSnapshot } | null> {
+  schema: z.ZodSchema<T>
+): Promise<{ parsed: T; usage: ModelUsageSnapshot } | null> {
   try {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const response = await Promise.race([
       client.messages.create(
         {
-          model: appConfig.routingModel,
+          model,
           temperature: 0.1,
-          max_tokens: 500,
+          max_tokens: 600,
           messages: [{ role: "user", content: prompt }]
         },
         { timeout: timeoutMs }
@@ -172,31 +203,63 @@ async function callClassificationAPI(
       new Promise<never>((_, reject) => {
         const timer = setTimeout(() => {
           clearTimeout(timer);
-          reject(new Error("classification_timeout"));
+          reject(new Error("model_timeout"));
         }, timeoutMs);
       })
     ]);
 
-    const text = textFromContent(response.content);
-    const parsed = classificationSchema.parse(parseJsonFromOutput(text));
-    const model = String(response.model ?? appConfig.routingModel);
-    const rawUsage = normalizeAnthropicUsage(response.usage);
+    const resolvedModel = String(response.model ?? model);
+    const parsed = schema.parse(parseJsonFromOutput(textFromContent(response.content)));
 
     return {
       parsed,
-      model,
-      usage: {
-        model,
-        inputTokens: rawUsage.inputTokens,
-        outputTokens: rawUsage.outputTokens,
-        cacheCreationInputTokens: rawUsage.cacheCreationInputTokens,
-        cacheReadInputTokens: rawUsage.cacheReadInputTokens,
-        costUsd: calculateAnthropicCostUsd(model, rawUsage)
-      }
+      usage: normalizeUsage(resolvedModel, response)
     };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : "unknown error";
-    console.error(`[classifier] API call failed: ${msg}`);
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.error(`[classifier] JSON model call failed: ${message}`);
+    return null;
+  }
+}
+
+async function callTextModel(
+  model: string,
+  prompt: string,
+  timeoutMs: number,
+  maxTokens: number
+): Promise<{ content: string; usage: ModelUsageSnapshot } | null> {
+  try {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const response = await Promise.race([
+      client.messages.create(
+        {
+          model,
+          temperature: 0.2,
+          max_tokens: maxTokens,
+          messages: [{ role: "user", content: prompt }]
+        },
+        { timeout: timeoutMs }
+      ),
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => {
+          clearTimeout(timer);
+          reject(new Error("model_timeout"));
+        }, timeoutMs);
+      })
+    ]);
+
+    const content = textFromContent(response.content).trim();
+    if (!content) {
+      return null;
+    }
+
+    return {
+      content,
+      usage: normalizeUsage(String(response.model ?? model), response)
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.error(`[classifier] Text model call failed: ${message}`);
     return null;
   }
 }
@@ -204,139 +267,139 @@ async function callClassificationAPI(
 export async function classifyBookmark(input: {
   bookmark: Bookmark;
   enrichments: BookmarkEnrichment[];
-  existingSkills: SkillSummary[];
-}): Promise<ClassificationOutput> {
-  const { bookmark, enrichments, existingSkills } = input;
+  existingBuckets: BucketSummary[];
+}): Promise<BucketedClassificationOutput> {
+  const { bookmark, enrichments, existingBuckets } = input;
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    return fallbackClassify(bookmark, enrichments, existingSkills);
+    return fallbackBucketClassification(bookmark, enrichments, existingBuckets);
   }
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const prompt = buildClassificationPrompt(bookmark, enrichments, existingSkills);
-
-  // First attempt
-  let result = await callClassificationAPI(client, prompt, appConfig.routingModelTimeoutMs, existingSkills);
-
-  // Retry once with 2x timeout on failure
-  if (!result) {
-    console.warn(`[classifier] Retrying classification for bookmark ${bookmark.id} with 2x timeout`);
-    result = await callClassificationAPI(client, prompt, appConfig.routingModelTimeoutMs * 2, existingSkills);
-  }
+  const prompt = buildBucketClassificationPrompt(bookmark, enrichments, existingBuckets);
+  let result = await callJsonModel(
+    appConfig.bookmarkClassificationModel,
+    prompt,
+    appConfig.routingModelTimeoutMs,
+    classificationSchema
+  );
 
   if (!result) {
-    console.warn(`[classifier] Both attempts failed for bookmark ${bookmark.id} — falling back to keyword heuristic`);
-    return fallbackClassify(bookmark, enrichments, existingSkills);
+    result = await callJsonModel(
+      appConfig.bookmarkClassificationModel,
+      prompt,
+      appConfig.routingModelTimeoutMs * 2,
+      classificationSchema
+    );
   }
 
-  const { parsed, usage } = result;
-
-  // Post-validation: reference must match an existing skill
-  let type = parsed.type;
-  let matchedSkillName = parsed.matchedSkillName;
-  let matchedSkillId: string | undefined;
-  let suggestedSkillName = parsed.suggestedSkillName;
-
-  if (type === "reference") {
-    const matched = existingSkills.find((s) => s.name === matchedSkillName);
-    if (!matched) {
-      // Cold-start fix: if no existing skill matches but a suggestedSkillName is provided,
-      // promote to skill with capped confidence so it lands in triage
-      if (suggestedSkillName) {
-        type = "skill";
-        matchedSkillName = undefined;
-        return {
-          type,
-          confidence: Math.min(parsed.confidence, 0.60),
-          rationale: parsed.rationale,
-          skillName: suggestedSkillName,
-          suggestedSkillName,
-          fallback: false,
-          usage
-        };
-      }
-      type = "unrelated";
-      matchedSkillName = undefined;
-    } else {
-      matchedSkillId = matched.id;
-    }
+  if (!result) {
+    return fallbackBucketClassification(bookmark, enrichments, existingBuckets);
   }
 
-  // Post-validation: skill with same name exists → treat as reference
-  if (type === "skill" && parsed.skillName) {
-    const existing = existingSkills.find((s) => s.name === parsed.skillName);
-    if (existing) {
-      type = "reference";
-      matchedSkillName = existing.name;
-      matchedSkillId = existing.id;
-    }
-  }
+  const bucketName = toKebabCase(result.parsed.bucketName);
+  const roleType = result.parsed.roleType;
+  const microSkillName = roleType === "MICRO_SKILL" && result.parsed.microSkillName
+    ? toKebabCase(result.parsed.microSkillName)
+    : undefined;
 
   return {
-    type,
-    confidence: parsed.confidence,
-    rationale: parsed.rationale,
-    skillName: type === "skill" ? parsed.skillName : undefined,
-    suggestedSkillName,
-    matchedSkillName,
-    matchedSkillId,
+    bucketName,
+    bucketDisplayName: result.parsed.bucketDisplayName?.trim() || toDisplayName(bucketName),
+    bucketDescription:
+      result.parsed.bucketDescription?.trim() || `Knowledge bucket for ${toDisplayName(bucketName)}.`,
+    roleType,
+    confidence: result.parsed.confidence,
+    rationale: result.parsed.rationale,
+    microSkillName,
     fallback: false,
-    usage
+    usage: result.usage
   };
 }
 
-export async function extractSkillContent(
-  bookmark: Bookmark,
-  enrichments: BookmarkEnrichment[]
-): Promise<{ content: string; usage?: ModelUsageSnapshot } | null> {
+export async function generateMicroSkillContent(input: {
+  bookmark: Bookmark;
+  enrichments: BookmarkEnrichment[];
+  bucket: Bucket;
+  skillName: string;
+  existingSkill?: Pick<Skill, "name" | "content" | "description">;
+}): Promise<{ content: string; usage?: ModelUsageSnapshot } | null> {
   if (!process.env.ANTHROPIC_API_KEY) {
-    return null;
-  }
-
-  try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const prompt = buildSkillExtractionPrompt(bookmark, enrichments);
-
-    const response = await Promise.race([
-      client.messages.create(
-        {
-          model: appConfig.routingModel,
-          temperature: 0.2,
-          max_tokens: 4000,
-          messages: [{ role: "user", content: prompt }]
-        },
-        { timeout: appConfig.routingModelTimeoutMs * 3 } // More time for extraction
-      ),
-      new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => {
-          clearTimeout(timer);
-          reject(new Error("extraction_timeout"));
-        }, appConfig.routingModelTimeoutMs * 3);
-      })
-    ]);
-
-    const text = textFromContent(response.content);
-    if (!text || text.length < 50) {
-      return null;
-    }
-
-    const model = String(response.model ?? appConfig.routingModel);
-    const rawUsage = normalizeAnthropicUsage(response.usage);
+    const body = [
+      `You are the ${toDisplayName(input.skillName)} micro-skill inside the ${input.bucket.displayName} bucket.`,
+      "",
+      "## Source Tactic",
+      input.bookmark.text || "Derived from imported bookmark knowledge.",
+      "",
+      "## Usage",
+      "Apply the tactic described by the source material, adapt it to the current task, and preserve any concrete operating details."
+    ].join("\n");
 
     return {
-      content: text,
-      usage: {
-        model,
-        inputTokens: rawUsage.inputTokens,
-        outputTokens: rawUsage.outputTokens,
-        cacheCreationInputTokens: rawUsage.cacheCreationInputTokens,
-        cacheReadInputTokens: rawUsage.cacheReadInputTokens,
-        costUsd: calculateAnthropicCostUsd(model, rawUsage)
-      }
+      content: buildFallbackContent(toDisplayName(input.skillName), body, []),
     };
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : "unknown error";
-    console.error(`[classifier] Skill extraction failed for bookmark ${bookmark.id}: ${msg}`);
+  }
+
+  const prompt = buildMicroSkillPrompt(input);
+  const result = await callTextModel(
+    appConfig.microSkillModel,
+    prompt,
+    appConfig.routingModelTimeoutMs * 3,
+    4_000
+  );
+
+  if (!result || result.content.length < 50) {
     return null;
   }
+
+  return result;
+}
+
+export async function synthesizeMasterSkill(input: {
+  bucket: Bucket;
+  masterSkill: Pick<Skill, "name" | "content" | "description">;
+  microSkills: Array<Pick<Skill, "name" | "description" | "content">>;
+  references: Array<{
+    tweetId: string;
+    authorHandle: string;
+    text: string;
+    url: string;
+    rationale?: string | null;
+  }>;
+}): Promise<{ content: string; usage?: ModelUsageSnapshot } | null> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    const microList = input.microSkills.length > 0
+      ? input.microSkills.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n")
+      : "- No micro-skills yet";
+    const referenceList = input.references.length > 0
+      ? input.references.slice(0, 8).map((reference) => `- @${reference.authorHandle}: ${reference.text}`).join("\n")
+      : "- No recent references yet";
+
+    return {
+      content: [
+        `# ${input.bucket.displayName}`,
+        "",
+        input.bucket.description,
+        "",
+        "## Micro-Skills",
+        microList,
+        "",
+        "## Recent References",
+        referenceList,
+      ].join("\n")
+    };
+  }
+
+  const prompt = buildMasterSkillPrompt(input);
+  const result = await callTextModel(
+    appConfig.masterSkillModel,
+    prompt,
+    appConfig.routingModelTimeoutMs * 3,
+    4_000
+  );
+
+  if (!result || result.content.length < 50) {
+    return null;
+  }
+
+  return result;
 }

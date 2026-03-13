@@ -1,8 +1,8 @@
-import type { Bookmark, BookmarkEnrichment } from "@prisma/client";
+import { BookmarkRoleType, SkillKind, type Bookmark, type Bucket, type Skill } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
-import { appConfig } from "@/lib/domain/config";
-import type { ClassificationOutput } from "@/lib/classification/classifier";
+import { assignPrimaryBucket, ensureMasterSkill, markBucketDirty, summarizeSkillContent, uniqueMicroSkillName } from "@/lib/buckets/service";
+import type { BucketedClassificationOutput } from "@/lib/classification/classifier";
 import { queueTriage } from "@/lib/triage/service";
 
 export type ActionResult = {
@@ -11,135 +11,171 @@ export type ActionResult = {
   referenceAttached: boolean;
   triaged: boolean;
   classificationId: string;
+  targetSkillId?: string;
+  targetSkillName?: string;
 };
 
-function toKebabCase(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
+export async function handleClassification(input: {
+  bookmark: Bookmark;
+  bucket: Bucket;
+  classification: BucketedClassificationOutput;
+  runId: string | null;
+  microSkillContent?: string | null;
+  targetSkill?: Pick<Skill, "id" | "name" | "kind"> | null;
+  reviewReason?: string;
+  existingClassificationId?: string | null;
+  deferMicroSkillGeneration?: boolean;
+}): Promise<ActionResult> {
+  const {
+    bookmark,
+    bucket,
+    classification,
+    runId,
+    microSkillContent,
+    targetSkill,
+    reviewReason,
+    existingClassificationId,
+    deferMicroSkillGeneration,
+  } = input;
 
-async function uniqueSkillName(baseName: string): Promise<string> {
-  const kebab = toKebabCase(baseName);
-  const existing = await prisma.skill.findUnique({ where: { name: kebab } });
-  if (!existing) return kebab;
-  // Append suffix on collision
-  for (let i = 2; i <= 10; i++) {
-    const candidate = `${kebab}-${i}`;
-    const found = await prisma.skill.findUnique({ where: { name: candidate } });
-    if (!found) return candidate;
-  }
-  return `${kebab}-${Date.now()}`;
-}
+  await assignPrimaryBucket(bookmark.id, bucket.id);
+  const masterSkill = await ensureMasterSkill(bucket);
 
-function summarizeSkillContent(content: string): string {
-  const lines = content
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .filter((l) => !l.startsWith("#"));
-  return lines[0]?.slice(0, 200) ?? "Skill created from bookmark classification";
-}
-
-export async function handleClassification(
-  bookmark: Bookmark,
-  classification: ClassificationOutput,
-  _enrichments: BookmarkEnrichment[],
-  runId: string | null
-): Promise<ActionResult> {
-  const { type, confidence, rationale, skillName, matchedSkillId, extractedSkillContent, fallback } =
-    classification;
-
-  let action: string;
+  let action = "no_action";
   let skillCreated = false;
   let referenceAttached = false;
   let triaged = false;
-  let createdSkillId: string | undefined;
+  let finalTargetSkillId: string | undefined;
+  let finalTargetSkillName: string | undefined;
+  let extractedSkillName: string | undefined;
+  let extractedSkillContent: string | undefined;
 
-  if (type === "skill") {
-    if (confidence >= appConfig.classificationAutoCreateThreshold && extractedSkillContent) {
-      // Auto-create skill
-      const name = await uniqueSkillName(skillName ?? "unnamed-skill");
-      const skill = await prisma.skill.create({
+  if (classification.roleType === "REFERENCE") {
+    const referenceTarget = targetSkill ?? masterSkill;
+    await prisma.skillReference.upsert({
+      where: {
+        skillId_bookmarkId: {
+          skillId: referenceTarget.id,
+          bookmarkId: bookmark.id,
+        },
+      },
+      update: {
+        rationale: classification.rationale,
+      },
+      create: {
+        skillId: referenceTarget.id,
+        bookmarkId: bookmark.id,
+        rationale: classification.rationale,
+      },
+    });
+    action = "attached_reference";
+    referenceAttached = true;
+    finalTargetSkillId = referenceTarget.id;
+    finalTargetSkillName = referenceTarget.name;
+    await markBucketDirty(bucket.id);
+  }
+
+  if (classification.roleType === "MICRO_SKILL") {
+    const resolvedName = classification.microSkillName ?? `${bucket.name}-micro-skill`;
+    extractedSkillName = resolvedName;
+    extractedSkillContent = microSkillContent ?? undefined;
+
+    if (deferMicroSkillGeneration && !microSkillContent) {
+      action = "queued_micro_skill";
+      finalTargetSkillName = resolvedName;
+    } else if (targetSkill && microSkillContent) {
+      await prisma.skill.update({
+        where: { id: targetSkill.id },
         data: {
-          name,
-          content: extractedSkillContent,
-          description: summarizeSkillContent(extractedSkillContent),
-          source: "bookmark",
-          sourceBookmarkId: bookmark.id
-        }
+          content: microSkillContent,
+          description: summarizeSkillContent(microSkillContent),
+        },
       });
-      createdSkillId = skill.id;
-      action = "auto_created";
+      action = "updated_micro_skill";
+      finalTargetSkillId = targetSkill.id;
+      finalTargetSkillName = targetSkill.name;
+    } else if (microSkillContent) {
+      const finalName = await uniqueMicroSkillName(resolvedName, bucket.name);
+      const createdSkill = await prisma.skill.create({
+        data: {
+          name: finalName,
+          content: microSkillContent,
+          description: summarizeSkillContent(microSkillContent),
+          source: "bookmark",
+          kind: SkillKind.MICRO,
+          bucketId: bucket.id,
+          parentSkillId: masterSkill.id,
+          sourceBookmarkId: bookmark.id,
+        },
+      });
+      action = "created_micro_skill";
       skillCreated = true;
-    } else if (confidence >= appConfig.classificationReviewThreshold) {
-      // Stage for review
-      await queueTriage(
-        bookmark.id,
-        "skill_review",
-        `Potential skill "${skillName ?? "unknown"}" (confidence: ${confidence.toFixed(2)})`
-      );
-      action = "staged_for_review";
-      triaged = true;
+      finalTargetSkillId = createdSkill.id;
+      finalTargetSkillName = createdSkill.name;
+      extractedSkillName = createdSkill.name;
     } else {
-      action = "no_action";
-    }
-  } else if (type === "reference" && matchedSkillId) {
-    if (matchedSkillId.startsWith("__seed__")) {
-      // Seed skill reference — route to triage instead of creating a SkillReference
-      // to a non-existent skill
-      await queueTriage(
-        bookmark.id,
-        "reference_review",
-        `Reference to seed skill "${classification.matchedSkillName ?? matchedSkillId}" (confidence: ${confidence.toFixed(2)}) — needs real skill to attach to`
-      );
-      action = "staged_for_review";
-      triaged = true;
-    } else if (confidence >= appConfig.classificationReferenceThreshold) {
-      // Attach reference to real skill
       await prisma.skillReference.upsert({
         where: {
-          skillId_bookmarkId: { skillId: matchedSkillId, bookmarkId: bookmark.id }
+          skillId_bookmarkId: {
+            skillId: masterSkill.id,
+            bookmarkId: bookmark.id,
+          },
+        },
+        update: {
+          rationale: `${classification.rationale} [fallback: micro-skill generation failed]`,
         },
         create: {
-          skillId: matchedSkillId,
+          skillId: masterSkill.id,
           bookmarkId: bookmark.id,
-          rationale
+          rationale: `${classification.rationale} [fallback: micro-skill generation failed]`,
         },
-        update: { rationale }
       });
       action = "attached_reference";
       referenceAttached = true;
-    } else {
-      action = "no_action";
+      finalTargetSkillId = masterSkill.id;
+      finalTargetSkillName = masterSkill.name;
     }
-  } else {
-    action = "no_action";
+
+    await markBucketDirty(bucket.id);
   }
 
-  // Create classification record
-  const classificationRecord = await prisma.bookmarkClassification.create({
-    data: {
-      bookmarkId: bookmark.id,
-      classificationType: type,
-      action,
-      confidence,
-      rationale,
-      extractedSkillName: skillName,
-      extractedSkillContent,
-      matchedSkillId: createdSkillId ?? (matchedSkillId?.startsWith("__seed__") ? null : matchedSkillId),
-      fallback,
-      sourceRunId: runId
-    }
-  });
+  const classificationData = {
+    bookmarkId: bookmark.id,
+    classificationType: classification.roleType.toLowerCase(),
+    action,
+    bucketId: bucket.id,
+    roleType: classification.roleType as BookmarkRoleType,
+    targetSkillId: finalTargetSkillId,
+    confidence: classification.confidence,
+    rationale: classification.rationale,
+    extractedSkillName,
+    extractedSkillContent,
+    fallback: classification.fallback,
+    sourceRunId: runId,
+    classifiedAt: new Date(),
+  };
+
+  const classificationRecord = existingClassificationId
+    ? await prisma.bookmarkClassification.update({
+        where: { id: existingClassificationId },
+        data: classificationData,
+      })
+    : await prisma.bookmarkClassification.create({
+        data: classificationData,
+      });
+
+  if (reviewReason) {
+    await queueTriage(bookmark.id, "micro_skill_review", reviewReason);
+    triaged = true;
+  }
 
   return {
     action,
     skillCreated,
     referenceAttached,
     triaged,
-    classificationId: classificationRecord.id
+    classificationId: classificationRecord.id,
+    targetSkillId: finalTargetSkillId,
+    targetSkillName: finalTargetSkillName,
   };
 }

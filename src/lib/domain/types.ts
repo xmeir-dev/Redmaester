@@ -18,14 +18,13 @@ export type ModelUsageSnapshot = {
 };
 
 export type ClassificationOutput = {
-  type: "skill" | "reference" | "unrelated";
+  bucketName: string;
+  bucketDisplayName: string;
+  bucketDescription: string;
+  roleType: "REFERENCE" | "MICRO_SKILL" | "IGNORE";
   confidence: number;
   rationale: string;
-  skillName?: string;
-  suggestedSkillName?: string;
-  matchedSkillName?: string;
-  matchedSkillId?: string;
-  extractedSkillContent?: string;
+  microSkillName?: string;
   fallback: boolean;
   usage?: ModelUsageSnapshot;
 };
@@ -45,14 +44,21 @@ export type SkillSummary = {
 };
 
 export type PipelineResult = {
+  discoveredCount: number;
   processed: number;
   enriched: number;
   classified: number;
   skillsCreated: number;
   referencesAttached: number;
   triaged: number;
+  bucketsRefreshed?: number;
   blocked?: boolean;
+  needsBucketReview?: boolean;
+  discoveryPendingCount?: number;
   pendingCount?: number;
+  queuedMicroSkillCount?: number;
+  dirtyBucketCount?: number;
+  undecidedBucketCount?: number;
   estimatedCost?: number;
   budgetRemaining?: number;
   enrichmentWarning?: string;

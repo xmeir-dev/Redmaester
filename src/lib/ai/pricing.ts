@@ -74,7 +74,16 @@ export type AnthropicUsage = {
   cacheReadInputTokens: number;
 };
 
-export function normalizeAnthropicUsage(usage: Usage): AnthropicUsage {
+export function normalizeAnthropicUsage(usage: Usage | null | undefined): AnthropicUsage {
+  if (!usage) {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0
+    };
+  }
+
   return {
     inputTokens: normalizeTokenCount(usage.input_tokens),
     outputTokens: normalizeTokenCount(usage.output_tokens),
