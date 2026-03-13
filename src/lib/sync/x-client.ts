@@ -2,7 +2,6 @@ import type { BookmarkInput } from "@/lib/domain/types";
 import { appConfig } from "@/lib/domain/config";
 import { getActiveXToken } from "@/lib/auth/token-store";
 import { mockBookmarks } from "@/lib/sync/mock-bookmarks";
-import { loadSyncState } from "@/lib/sync/sync-state";
 import type { BookmarkFetchOptions, BookmarkFetchResult } from "@/lib/sync/types";
 
 export type BookmarkCountResult = {
@@ -60,6 +59,7 @@ type XCollectionResponse = {
     media?: XMedia[];
   };
   meta?: {
+    result_count?: number;
     next_token?: string;
   };
 };
@@ -70,6 +70,11 @@ type XMedia = {
   url?: string;
   preview_image_url?: string;
   alt_text?: string;
+};
+
+type FullSyncCursorState = {
+  version: 1;
+  mainCursor?: string;
 };
 
 function xApiUrl(path: string): string {
@@ -134,6 +139,104 @@ function normalizeTweet(
   };
 }
 
+function tweetFieldsParams(): Record<string, string> {
+  return {
+    "tweet.fields": "created_at,author_id,attachments,entities,note_tweet",
+    expansions: "author_id,attachments.media_keys",
+    "user.fields": "name,username",
+    "media.fields": "type,url,preview_image_url,alt_text"
+  };
+}
+
+function parseFullSyncCursor(cursor: string | undefined): FullSyncCursorState {
+  if (!cursor) {
+    return { version: 1 };
+  }
+
+  try {
+    const parsed = JSON.parse(cursor) as Partial<FullSyncCursorState>;
+    if (parsed && parsed.version === 1) {
+      return {
+        version: 1,
+        mainCursor: parsed.mainCursor || undefined
+      };
+    }
+  } catch {
+    // Backward compatibility for older string-only cursors.
+  }
+
+  return {
+    version: 1,
+    mainCursor: cursor
+  };
+}
+
+function serializeFullSyncCursor(state: FullSyncCursorState): string | undefined {
+  if (!state.mainCursor) {
+    return undefined;
+  }
+
+  return JSON.stringify({
+    version: 1,
+    mainCursor: state.mainCursor
+  });
+}
+
+function normalizeTweets(response: XCollectionResponse): BookmarkInput[] {
+  const usersById = new Map((response.includes?.users ?? []).map((user) => [user.id, user]));
+  const mediaByKey = new Map(
+    (response.includes?.media ?? [])
+      .filter((media): media is XMedia & { media_key: string } => Boolean(media.media_key))
+      .map((media) => [media.media_key, media])
+  );
+
+  return (response.data ?? []).map((tweet) => normalizeTweet(tweet, usersById, mediaByKey));
+}
+
+async function fetchTopLevelBookmarkPage(input: {
+  accessToken: string;
+  userId: string;
+  limit: number;
+  cursor?: string;
+}): Promise<XCollectionResponse> {
+  const params = new URLSearchParams({
+    max_results: String(input.limit),
+    ...tweetFieldsParams()
+  });
+  if (input.cursor) {
+    params.set("pagination_token", input.cursor);
+  }
+
+  return fetchFromX<XCollectionResponse>(
+    `/2/users/${input.userId}/bookmarks?${params.toString()}`,
+    input.accessToken
+  );
+}
+
+function mergeUniqueBookmarks(
+  target: BookmarkInput[],
+  incoming: BookmarkInput[],
+  seenIds: Set<string>,
+  limit: number,
+  sinceDate?: Date
+): void {
+  for (const bookmark of incoming) {
+    if (sinceDate && bookmark.bookmarkedAt < sinceDate) {
+      continue;
+    }
+
+    if (seenIds.has(bookmark.id)) {
+      continue;
+    }
+
+    seenIds.add(bookmark.id);
+    target.push(bookmark);
+    if (target.length >= limit) {
+      break;
+    }
+  }
+}
+
 class OfficialXClient implements XClient {
   async countBookmarks(): Promise<BookmarkCountResult> {
     const token = await getActiveXToken();
@@ -141,103 +244,41 @@ class OfficialXClient implements XClient {
       throw new Error("X account is not connected. Use /api/auth/x/start first.");
     }
 
-    // Use the same parameters as fetchBookmarks to ensure consistent API behavior
-    const pageSize = Math.max(5, Math.min(100, appConfig.fullSyncPageSize));
-
-    let count = 0;
+    // X drops pagination for some accounts when max_results approaches 100.
+    const pageSize = Math.max(5, Math.min(90, appConfig.fullSyncPageSize));
+    const seenIds = new Set<string>();
     let apiCalls = 0;
     let nextToken: string | undefined;
-
-    // Also try resuming from saved cursor to count remaining bookmarks
-    const state = await loadSyncState();
-    let cursorCount = 0;
-    let cursorApiCalls = 0;
-
-    // Phase 1: Count from the beginning (fresh, no cursor)
     while (apiCalls < 500) {
-      const params = new URLSearchParams({
-        max_results: String(pageSize),
-        "tweet.fields": "created_at,author_id,attachments,entities,note_tweet",
-        expansions: "author_id,attachments.media_keys",
-        "user.fields": "name,username",
-        "media.fields": "type,url,preview_image_url,alt_text",
-      });
-      if (nextToken) {
-        params.set("pagination_token", nextToken);
-      }
-
       let response: XCollectionResponse;
       try {
-        response = await fetchFromX<XCollectionResponse>(
-          `/2/users/${token.userId}/bookmarks?${params.toString()}`,
-          token.accessToken
-        );
+        response = await fetchTopLevelBookmarkPage({
+          accessToken: token.accessToken,
+          userId: token.userId,
+          limit: pageSize,
+          cursor: nextToken
+        });
         apiCalls++;
       } catch (error) {
         if (isRateLimitError(error)) {
-          return { count, apiCalls, stoppedReason: "rate_limit" };
+          return { count: seenIds.size, apiCalls, stoppedReason: "rate_limit" };
         }
         if (isCreditsDepletedError(error)) {
-          return { count, apiCalls, stoppedReason: "credits_depleted" };
+          return { count: seenIds.size, apiCalls, stoppedReason: "credits_depleted" };
         }
         throw error;
       }
 
-      const pageCount = (response.data ?? []).length;
-      count += pageCount;
-      console.log(`[count] Page ${apiCalls}: ${pageCount} bookmarks (total so far: ${count}, next_token: ${response.meta?.next_token ? "yes" : "no"})`);
+      for (const bookmark of normalizeTweets(response)) {
+        seenIds.add(bookmark.id);
+      }
       nextToken = response.meta?.next_token;
-      if (!nextToken) break;
-    }
-
-    // Phase 2: If there's a saved cursor from a previous full sync,
-    // count from that position too (the API may expose more bookmarks via cursor)
-    if (state.fullSyncCursor) {
-      console.log(`[count] Saved cursor found — counting from cursor position...`);
-      let cursorToken: string | undefined = state.fullSyncCursor;
-
-      while (cursorApiCalls < 500) {
-        const params = new URLSearchParams({
-          max_results: String(pageSize),
-          "tweet.fields": "created_at,author_id,attachments,entities,note_tweet",
-          expansions: "author_id,attachments.media_keys",
-          "user.fields": "name,username",
-          "media.fields": "type,url,preview_image_url,alt_text",
-        });
-        if (cursorToken) {
-          params.set("pagination_token", cursorToken);
-        }
-
-        let response: XCollectionResponse;
-        try {
-          response = await fetchFromX<XCollectionResponse>(
-            `/2/users/${token.userId}/bookmarks?${params.toString()}`,
-            token.accessToken
-          );
-          cursorApiCalls++;
-        } catch (error) {
-          if (isRateLimitError(error) || isCreditsDepletedError(error)) {
-            break;
-          }
-          throw error;
-        }
-
-        const pageCount = (response.data ?? []).length;
-        cursorCount += pageCount;
-        console.log(`[count] Cursor page ${cursorApiCalls}: ${pageCount} bookmarks (cursor total: ${cursorCount})`);
-        cursorToken = response.meta?.next_token;
-        if (!cursorToken) break;
+      if (!nextToken) {
+        break;
       }
     }
 
-    const totalApiCalls = apiCalls + cursorApiCalls;
-    const totalCount = count + cursorCount;
-
-    if (cursorCount > 0) {
-      console.log(`[count] Fresh: ${count}, From cursor: ${cursorCount}, Total: ${totalCount}`);
-    }
-
-    return { count: totalCount, apiCalls: totalApiCalls };
+    return { count: seenIds.size, apiCalls };
   }
 
   async fetchBookmarks(options: BookmarkFetchOptions): Promise<BookmarkFetchResult> {
@@ -247,35 +288,29 @@ class OfficialXClient implements XClient {
     }
 
     const totalLimit = Math.max(1, options.limit);
-    const pageSize = Math.max(1, Math.min(100, totalLimit));
+    // X drops pagination for some accounts when max_results approaches 100.
+    const configuredPageSize = Math.min(appConfig.fullSyncPageSize, totalLimit);
+    const pageSize = Math.max(1, Math.min(90, configuredPageSize));
     const maxPages = appConfig.fullSyncMaxPages > 0 ? appConfig.fullSyncMaxPages : Infinity;
-
+    const seenIds = new Set<string>();
     const bookmarks: BookmarkInput[] = [];
     let pageCount = 0;
-    let nextToken: string | undefined = options.cursor;
+    const cursorState = parseFullSyncCursor(options.cursor);
+    let nextToken: string | undefined = cursorState.mainCursor;
     let stoppedReason: BookmarkFetchResult["stoppedReason"];
 
     while (bookmarks.length < totalLimit && pageCount < maxPages) {
       const remaining = totalLimit - bookmarks.length;
       const requestedPageSize = Math.max(1, Math.min(pageSize, remaining));
-      const params = new URLSearchParams({
-        max_results: String(requestedPageSize),
-        "tweet.fields": "created_at,author_id,attachments,entities,note_tweet",
-        expansions: "author_id,attachments.media_keys",
-        "user.fields": "name,username",
-        "media.fields": "type,url,preview_image_url,alt_text"
-      });
-      if (nextToken) {
-        params.set("pagination_token", nextToken);
-      }
-
       const requestCursor = nextToken;
       let response: XCollectionResponse;
       try {
-        response = await fetchFromX<XCollectionResponse>(
-          `/2/users/${token.userId}/bookmarks?${params.toString()}`,
-          token.accessToken
-        );
+        response = await fetchTopLevelBookmarkPage({
+          accessToken: token.accessToken,
+          userId: token.userId,
+          limit: requestedPageSize,
+          cursor: nextToken
+        });
       } catch (error) {
         if (isRateLimitError(error)) {
           stoppedReason = "rate_limit";
@@ -293,12 +328,13 @@ class OfficialXClient implements XClient {
           throw error;
         }
 
-        params.set("max_results", "5");
         try {
-          response = await fetchFromX<XCollectionResponse>(
-            `/2/users/${token.userId}/bookmarks?${params.toString()}`,
-            token.accessToken
-          );
+          response = await fetchTopLevelBookmarkPage({
+            accessToken: token.accessToken,
+            userId: token.userId,
+            limit: 5,
+            cursor: nextToken
+          });
         } catch (retryError) {
           if (isRateLimitError(retryError)) {
             stoppedReason = "rate_limit";
@@ -315,15 +351,7 @@ class OfficialXClient implements XClient {
         }
       }
 
-      const usersById = new Map((response.includes?.users ?? []).map((user) => [user.id, user]));
-      const mediaByKey = new Map(
-        (response.includes?.media ?? [])
-          .filter((media): media is XMedia & { media_key: string } => Boolean(media.media_key))
-          .map((media) => [media.media_key, media])
-      );
-      const pageBookmarks = (response.data ?? []).map((tweet) =>
-        normalizeTweet(tweet, usersById, mediaByKey)
-      );
+      const pageBookmarks = normalizeTweets(response);
 
       if (options.sinceDate) {
         for (const bm of pageBookmarks) {
@@ -332,13 +360,13 @@ class OfficialXClient implements XClient {
             nextToken = undefined;
             break;
           }
-          bookmarks.push(bm);
+          mergeUniqueBookmarks(bookmarks, [bm], seenIds, totalLimit, options.sinceDate);
         }
         if (stoppedReason === "date_cutoff") {
           break;
         }
       } else {
-        bookmarks.push(...pageBookmarks);
+        mergeUniqueBookmarks(bookmarks, pageBookmarks, seenIds, totalLimit);
       }
       pageCount += 1;
       nextToken = response.meta?.next_token;
@@ -347,9 +375,11 @@ class OfficialXClient implements XClient {
       }
     }
 
+    bookmarks.sort((a, b) => b.bookmarkedAt.getTime() - a.bookmarkedAt.getTime());
+
     return {
       bookmarks: bookmarks.slice(0, totalLimit),
-      nextCursor: nextToken,
+      nextCursor: serializeFullSyncCursor({ version: 1, mainCursor: nextToken }),
       stoppedReason
     };
   }

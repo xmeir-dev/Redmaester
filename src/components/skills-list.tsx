@@ -5,8 +5,10 @@ import { useState } from "react";
 type SkillRow = {
   id: string;
   name: string;
+  kind: string;
   description: string;
   source: string;
+  bucketName: string | null;
   content: string;
   referenceCount: number;
   createdAt: string | Date;
@@ -30,7 +32,9 @@ export function SkillsList({ skills }: { skills: SkillRow[] }) {
           >
             <div className="flex items-center gap-3">
               <span className="font-medium text-sm">{skill.name}</span>
+              <span className="badge">{skill.kind.toLowerCase()}</span>
               <span className="badge">{skill.source}</span>
+              {skill.bucketName ? <span className="list-meta">{skill.bucketName}</span> : null}
               <span className="list-meta">{skill.referenceCount} refs</span>
               <span className="list-meta ml-auto">
                 {new Date(skill.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}

@@ -24,7 +24,7 @@ export function TriageList({ items }: { items: TriageItem[] }) {
   async function handleResolve(item: TriageItem, approved: boolean) {
     setResolving(item.id);
     try {
-      if (item.reason === "skill_review") {
+      if (item.reason === "skill_review" || item.reason === "micro_skill_review") {
         const body: Record<string, unknown> = { triageId: item.id, approved };
         if (approved && editingId === item.id) {
           body.editedSkillName = editName;
@@ -64,7 +64,7 @@ export function TriageList({ items }: { items: TriageItem[] }) {
       {items.map((item) => (
         <article key={item.id} className="list-item">
           <p>
-            <span className={`badge ${item.reason === "skill_review" ? "" : "danger"}`}>{item.reason}</span>
+            <span className={`badge ${item.reason === "skill_review" || item.reason === "micro_skill_review" ? "" : "danger"}`}>{item.reason}</span>
             <span className="list-meta">Tweet {item.tweetId}</span>
           </p>
           <p style={{ marginTop: 8 }}>{item.bookmarkText}</p>
@@ -77,7 +77,7 @@ export function TriageList({ items }: { items: TriageItem[] }) {
             @{item.authorHandle}
           </p>
 
-          {item.reason === "skill_review" ? (
+          {item.reason === "skill_review" || item.reason === "micro_skill_review" ? (
             <div style={{ marginTop: 12 }}>
               {editingId === item.id ? (
                 <div className="space-y-2">

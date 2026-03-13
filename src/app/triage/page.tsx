@@ -10,7 +10,7 @@ export default async function TriagePage() {
 
   // Fetch classification data for skill_review items
   const bookmarkIds = triageItems
-    .filter((item) => item.reason === "skill_review")
+    .filter((item) => item.reason === "skill_review" || item.reason === "micro_skill_review")
     .map((item) => item.tweetId);
 
   const classifications = bookmarkIds.length > 0

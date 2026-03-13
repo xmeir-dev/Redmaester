@@ -3,14 +3,13 @@
 import { useState } from "react";
 
 type ClassificationResult = {
-  type: "skill" | "reference" | "unrelated";
+  bucketName: string;
+  bucketDisplayName: string;
+  bucketDescription: string;
+  roleType: "REFERENCE" | "MICRO_SKILL" | "IGNORE";
   confidence: number;
   rationale: string;
-  skillName?: string;
-  suggestedSkillName?: string;
-  matchedSkillName?: string;
-  matchedSkillId?: string;
-  extractedSkillContent?: string;
+  microSkillName?: string;
   fallback: boolean;
   usage?: {
     model: string;
@@ -104,9 +103,9 @@ The key is to never add the eggs over direct heat — the residual warmth from t
 ];
 
 const TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  skill: { bg: "rgba(34,197,94,0.15)", text: "#22c55e" },
-  reference: { bg: "rgba(59,130,246,0.15)", text: "#3b82f6" },
-  unrelated: { bg: "rgba(156,163,175,0.15)", text: "#9ca3af" },
+  MICRO_SKILL: { bg: "rgba(34,197,94,0.15)", text: "#22c55e" },
+  REFERENCE: { bg: "rgba(59,130,246,0.15)", text: "#3b82f6" },
+  IGNORE: { bg: "rgba(156,163,175,0.15)", text: "#9ca3af" },
 };
 
 const inputStyle: React.CSSProperties = {
@@ -226,7 +225,7 @@ export default function ClassifyDemoPage() {
   }
 
   const c = result?.classification;
-  const colors = c ? TYPE_COLORS[c.type] : null;
+  const colors = c ? TYPE_COLORS[c.roleType] : null;
   const canClassify = !!(tweetText || content || url.trim());
 
   return (
@@ -256,7 +255,7 @@ export default function ClassifyDemoPage() {
             marginBottom: 32,
           }}
         >
-          Paste a URL or content to see how the classification pipeline
+          Paste a URL or content to see how the bucket classification pipeline
           responds. Stateless — no DB, no side effects.
         </p>
 
@@ -441,8 +440,8 @@ export default function ClassifyDemoPage() {
                   letterSpacing: "0.05em",
                 }}
               >
-                {c.type}
-              </span>
+                  {c.roleType}
+                </span>
 
               <span
                 style={{
@@ -470,7 +469,7 @@ export default function ClassifyDemoPage() {
                 </span>
               )}
 
-              {(c.skillName || c.suggestedSkillName || c.matchedSkillName) && (
+              {(c.bucketDisplayName || c.microSkillName) && (
                 <span
                   style={{
                     marginLeft: "auto",
@@ -478,11 +477,9 @@ export default function ClassifyDemoPage() {
                     color: "hsl(0 0% 55%)",
                   }}
                 >
-                  {c.matchedSkillName
-                    ? `matched: ${c.matchedSkillName}`
-                    : c.skillName
-                      ? `skill: ${c.skillName}`
-                      : `suggested: ${c.suggestedSkillName}`}
+                  {c.microSkillName
+                    ? `bucket: ${c.bucketDisplayName} · micro-skill: ${c.microSkillName}`
+                    : `bucket: ${c.bucketDisplayName}`}
                 </span>
               )}
             </div>
@@ -547,7 +544,7 @@ export default function ClassifyDemoPage() {
                     marginBottom: 8,
                   }}
                 >
-                  Extracted SKILL.md
+                  Generated micro-skill
                 </div>
                 <pre
                   style={{

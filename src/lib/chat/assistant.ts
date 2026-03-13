@@ -7,7 +7,9 @@ import { appConfig } from "@/lib/domain/config";
 
 type ClassificationEntry = {
   classificationType: string;
-  matchedSkillName: string | null;
+  roleType: string | null;
+  bucketName: string | null;
+  targetSkillName: string | null;
   confidence: number;
   rationale: string | null;
 };
@@ -203,7 +205,7 @@ function summarizeLocal(context: ContextItem[], question: string, totalBookmarks
     .map((item, index) => {
       const titlePart = item.title ? ` title=${item.title};` : "";
       const classificationPart = item.classificationEntries.length > 0
-        ? ` type=${item.classificationEntries[0].classificationType}${item.classificationEntries[0].matchedSkillName ? ` skill=${item.classificationEntries[0].matchedSkillName}` : ""}`
+        ? ` type=${item.classificationEntries[0].roleType ?? item.classificationEntries[0].classificationType}${item.classificationEntries[0].bucketName ? ` bucket=${item.classificationEntries[0].bucketName}` : ""}${item.classificationEntries[0].targetSkillName ? ` skill=${item.classificationEntries[0].targetSkillName}` : ""}`
         : "";
       return `${index + 1}. [${item.tweetId}] @${item.authorHandle}:${titlePart} text=${item.text.slice(0, 180)}...${classificationPart}`;
     })
@@ -232,7 +234,7 @@ function buildHistoryBlock(history: ChatTurn[]): string {
 function contextLine(item: ContextItem, index: number): string {
   const classification = item.classificationEntries[0];
   const classInfo = classification
-    ? `type=${classification.classificationType}${classification.matchedSkillName ? ` skill=${classification.matchedSkillName}` : ""}`
+    ? `type=${classification.roleType ?? classification.classificationType}${classification.bucketName ? ` bucket=${classification.bucketName}` : ""}${classification.targetSkillName ? ` skill=${classification.targetSkillName}` : ""}`
     : "";
 
   return [
@@ -452,9 +454,13 @@ async function collectContext(question: string, history: ChatTurn[]): Promise<Co
       select: {
         bookmarkId: true,
         classificationType: true,
+        roleType: true,
         confidence: true,
         rationale: true,
-        matchedSkill: {
+        bucket: {
+          select: { name: true }
+        },
+        targetSkill: {
           select: { name: true }
         }
       }
@@ -466,7 +472,9 @@ async function collectContext(question: string, history: ChatTurn[]): Promise<Co
     const entries = classificationByBookmark.get(c.bookmarkId) ?? [];
     entries.push({
       classificationType: c.classificationType,
-      matchedSkillName: c.matchedSkill?.name ?? null,
+      roleType: c.roleType ?? null,
+      bucketName: c.bucket?.name ?? null,
+      targetSkillName: c.targetSkill?.name ?? null,
       confidence: c.confidence,
       rationale: c.rationale
     });
@@ -477,7 +485,7 @@ async function collectContext(question: string, history: ChatTurn[]): Promise<Co
     const classificationEntries = (classificationByBookmark.get(bookmark.id) ?? []).sort((a, b) => b.confidence - a.confidence);
     const title = extractTitle(bookmark.rawJson);
     const classificationText = classificationEntries
-      .map((e) => `${e.classificationType} ${e.matchedSkillName ?? ""}`)
+      .map((e) => `${e.roleType ?? e.classificationType} ${e.bucketName ?? ""} ${e.targetSkillName ?? ""}`)
       .join(" ");
     const rationaleText = classificationEntries
       .map((e) => e.rationale ?? "")

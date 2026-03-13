@@ -8,15 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 type ContentTypeFilter = "all" | "article" | "post";
-type ClassificationStatusFilter = "all" | "skill" | "reference" | "triage" | "unclassified";
+type ClassificationStatusFilter = "all" | "micro_skill" | "reference" | "triage" | "ignored" | "pending";
 
 type HomeFiltersProps = {
   title: string;
   query: string;
   typeFilter: ContentTypeFilter;
   statusFilter: ClassificationStatusFilter;
-  skillFilter: string;
-  skills: string[];
+  bucketFilter: string;
+  buckets: string[];
   resultsCount: number;
   totalCount: number;
 };
@@ -26,8 +26,8 @@ export function HomeFilters({
   query,
   typeFilter,
   statusFilter,
-  skillFilter,
-  skills,
+  bucketFilter,
+  buckets,
   resultsCount,
   totalCount,
 }: HomeFiltersProps) {
@@ -72,9 +72,9 @@ export function HomeFilters({
     const chips: { label: string; onRemove: () => void }[] = [];
     if (typeFilter !== "all") chips.push({ label: `Type: ${typeFilter}`, onRemove: () => updateParams({ type: "all" }) });
     if (statusFilter !== "all") chips.push({ label: `Status: ${statusFilter}`, onRemove: () => updateParams({ status: "all" }) });
-    if (skillFilter) chips.push({ label: `Skill: ${skillFilter}`, onRemove: () => updateParams({ skill: "" }) });
+    if (bucketFilter) chips.push({ label: `Bucket: ${bucketFilter}`, onRemove: () => updateParams({ bucket: "" }) });
     return chips;
-  }, [typeFilter, statusFilter, skillFilter]);
+  }, [typeFilter, statusFilter, bucketFilter]);
 
   const hasActiveFilters = activeChips.length > 0 || query.trim().length > 0;
 
@@ -105,13 +105,13 @@ export function HomeFilters({
     q?: string;
     type?: ContentTypeFilter;
     status?: ClassificationStatusFilter;
-    skill?: string;
+    bucket?: string;
   }) {
     const params = new URLSearchParams(searchParams.toString());
     const nextQuery = (next.q ?? params.get("q") ?? "").trim();
     const nextType = next.type ?? ((params.get("type") as ContentTypeFilter | null) ?? "all");
     const nextStatus = next.status ?? ((params.get("status") as ClassificationStatusFilter | null) ?? "all");
-    const nextSkill = (next.skill ?? params.get("skill") ?? "").trim();
+    const nextBucket = (next.bucket ?? params.get("bucket") ?? "").trim();
 
     params.delete("filter");
     params.delete("xFolder");
@@ -119,7 +119,7 @@ export function HomeFilters({
     nextQuery ? params.set("q", nextQuery) : params.delete("q");
     nextType !== "all" ? params.set("type", nextType) : params.delete("type");
     nextStatus !== "all" ? params.set("status", nextStatus) : params.delete("status");
-    nextSkill ? params.set("skill", nextSkill) : params.delete("skill");
+    nextBucket ? params.set("bucket", nextBucket) : params.delete("bucket");
 
     const href = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     startTransition(() => { router.replace(href, { scroll: false }); });
@@ -160,7 +160,7 @@ export function HomeFilters({
               <span className="text-black/70">{syncState.classifiedCount}</span>
               <span className="text-black/30"> classified, </span>
               <span className="text-black/70">{syncState.skillsCreated}</span>
-              <span className="text-black/30"> skills</span>
+              <span className="text-black/30"> micro-skills</span>
               <button type="button" onClick={() => setSyncState("idle")} className="text-black/30 hover:text-black/70 transition-colors">
                 <X size={12} />
               </button>
@@ -184,7 +184,7 @@ export function HomeFilters({
               <span className="text-black/70">{totalCount.toLocaleString()}</span>
               <button
                 type="button"
-                onClick={() => updateParams({ q: "", type: "all", status: "all", skill: "" })}
+                onClick={() => updateParams({ q: "", type: "all", status: "all", bucket: "" })}
                 className="group/clear relative text-black/30 hover:text-black/70 transition-colors"
               >
                 <X size={12} />
@@ -266,20 +266,21 @@ export function HomeFilters({
                   onChange={(v) => updateParams({ status: v as ClassificationStatusFilter })}
                 >
                   <option value="all">All statuses</option>
-                  <option value="skill">Skill</option>
+                  <option value="micro_skill">Micro-skill</option>
                   <option value="reference">Reference</option>
                   <option value="triage">Triage</option>
-                  <option value="unclassified">Unclassified</option>
+                  <option value="ignored">Ignored</option>
+                  <option value="pending">Pending</option>
                 </FilterSelect>
 
-                {skills.length > 0 ? (
+                {buckets.length > 0 ? (
                   <FilterSelect
-                    label="Skill"
-                    value={skillFilter}
-                    onChange={(v) => updateParams({ skill: v })}
+                    label="Bucket"
+                    value={bucketFilter}
+                    onChange={(v) => updateParams({ bucket: v })}
                   >
-                    <option value="">All skills</option>
-                    {skills.map((s) => <option key={s} value={s}>{s}</option>)}
+                    <option value="">All buckets</option>
+                    {buckets.map((bucket) => <option key={bucket} value={bucket}>{bucket}</option>)}
                   </FilterSelect>
                 ) : null}
 

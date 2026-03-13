@@ -17,9 +17,11 @@ type SyncRunItem = {
 type ClassificationItem = {
   id: string;
   classificationType: string;
+  roleType: string | null;
   action: string;
   confidence: number;
-  matchedSkill: { name: string } | null;
+  bucket: { name: string } | null;
+  targetSkill: { name: string } | null;
   bookmark: {
     text: string;
     authorHandle: string;
@@ -86,12 +88,13 @@ export function LogsTabs({
             recentClassifications.map((item) => (
               <article key={item.id} className="log-row">
                 <p className="log-main">
-                  <span className="badge">{item.classificationType}</span>
+                  <span className="badge">{item.roleType ?? item.classificationType}</span>
                   {item.bookmark.text}
                 </p>
                 <p className="list-meta">Conf {item.confidence.toFixed(2)}</p>
                 <p className="list-meta">{item.action}</p>
-                <p className="list-meta">{item.matchedSkill?.name ?? "-"}</p>
+                <p className="list-meta">{item.bucket?.name ?? "-"}</p>
+                <p className="list-meta">{item.targetSkill?.name ?? "-"}</p>
                 <p className="list-meta">@{item.bookmark.authorHandle}</p>
               </article>
             ))

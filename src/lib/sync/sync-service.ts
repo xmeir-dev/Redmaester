@@ -110,9 +110,44 @@ export async function runSync(requestedMode: SyncMode, options?: { limit?: numbe
   try {
     const state = effectiveMode === SyncMode.FULL ? await loadSyncState() : {};
     const hasExplicitLimit = Boolean(options?.limit);
+    let limit: number;
+    let cursor: string | undefined;
+
+    if (effectiveMode === SyncMode.AUTO) {
+      limit = options?.limit ?? appConfig.autoSyncLookbackLimit;
+    } else if (hasExplicitLimit) {
+      limit = options!.limit!;
+    } else if (bookmarkCount === 0) {
+      limit = appConfig.initialSyncDefaultLimit;
+      runNotes = `Initial import capped to the latest ${limit.toLocaleString()} bookmarks for cost control.`;
+    } else if (state.fullSyncCursor) {
+      limit = appConfig.backfillChunkLimit;
+      cursor = state.fullSyncCursor;
+      runNotes = `Backfilling older bookmarks in chunks of ${limit.toLocaleString()}.`;
+    } else {
+      await prisma.syncRun.update({
+        where: { id: syncRun.id },
+        data: {
+          status: SyncStatus.SUCCESS,
+          notes: "Older bookmark backfill is already complete.",
+          finishedAt: new Date()
+        }
+      });
+
+      return {
+        runId: syncRun.id,
+        requestedMode,
+        effectiveMode,
+        newBookmarks: 0,
+        triagedCount: 0,
+        knownTweetEncountered: false,
+        notes: "Older bookmark backfill is already complete."
+      };
+    }
+
     const fetchResult = await xClient.fetchBookmarks({
-      limit: effectiveMode === SyncMode.AUTO ? 1 : (options?.limit ?? appConfig.fullSyncMaxBookmarks),
-      cursor: effectiveMode === SyncMode.FULL && !hasExplicitLimit ? state.fullSyncCursor : undefined,
+      limit,
+      cursor: effectiveMode === SyncMode.FULL && !hasExplicitLimit ? cursor : undefined,
       sinceDate: options?.sinceDate
     });
     const batch = fetchResult.bookmarks;
@@ -126,7 +161,9 @@ export async function runSync(requestedMode: SyncMode, options?: { limit?: numbe
       } else if (fetchResult.stoppedReason === "rate_limit") {
         runNotes = "Stopped at X rate limit. Cursor saved for next full sync.";
       } else if (!fetchResult.nextCursor) {
-        runNotes = "Full sync reached end of bookmark history.";
+        runNotes = bookmarkCount === 0
+          ? "Initial import reached the end of available bookmark history."
+          : "Older bookmark backfill reached the end of bookmark history.";
       }
     }
 

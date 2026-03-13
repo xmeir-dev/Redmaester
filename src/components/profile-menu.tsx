@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { streamClassify } from "@/lib/client/stream-classify";
+import { drainClassification } from "@/lib/client/stream-classify";
 
 type SyncMode = "AUTO" | "FULL";
-type SyncAction = "last10" | "full" | null;
+type SyncAction = "initial" | "sync" | "older" | null;
 
 function emitLog(message: string) {
   window.dispatchEvent(new CustomEvent("sync-log", { detail: { message } }));
@@ -17,10 +17,12 @@ export function ProfileMenu({
   connected,
   username,
   displayName,
+  hasBookmarks,
 }: {
   connected: boolean;
   username?: string;
   displayName?: string;
+  hasBookmarks: boolean;
 }) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -47,7 +49,7 @@ export function ProfileMenu({
     if (!isMenuOpen) setClearConfirm(false);
   }, [isMenuOpen]);
 
-  async function runSync(mode: SyncMode, limit?: number, action: SyncAction = "full") {
+  async function runSync(mode: SyncMode, limit: number | undefined, action: SyncAction, label: string) {
     setIsMenuOpen(false);
     setSyncAction(action);
     window.dispatchEvent(new CustomEvent("sync-start"));
@@ -56,7 +58,7 @@ export function ProfileMenu({
     try {
       const body: Record<string, unknown> = { mode };
       if (limit) body.limit = limit;
-      emitLog(`Fetching bookmarks from X${limit ? ` (last ${limit})` : " (full)"}...`);
+      emitLog(`${label}...`);
       const res = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -78,15 +80,39 @@ export function ProfileMenu({
       let classifiedCount = 0;
       let skillsCreated = 0;
       try {
-        emitLog("Running classification pipeline...");
-        const classifyResult = await streamClassify(emitLog, (bookmarkId, step) => {
-          window.dispatchEvent(new CustomEvent("bookmark-step", { detail: { bookmarkId, step } }));
-        });
+        emitLog("Discovering buckets and classifying reviewed agent buckets...");
+        const classifyResult = await drainClassification(
+          emitLog,
+          (bookmarkId, step) => {
+            window.dispatchEvent(
+              new CustomEvent("bookmark-step", {
+                detail: { bookmarkId, step },
+              }),
+            );
+          },
+          async () => {
+            router.refresh();
+          },
+        );
         classifiedCount = classifyResult.classified ?? 0;
         skillsCreated = classifyResult.skillsCreated ?? 0;
 
         if (classifyResult.blocked) {
           emitLog("Classification blocked — budget exceeded");
+        }
+        if (classifyResult.needsBucketReview) {
+          emitLog("Guided bucket setup required before agent classification can continue");
+          window.dispatchEvent(
+            new CustomEvent("sync-end", {
+              detail: {
+                newBookmarks: payload.newBookmarks ?? 0,
+                classifiedCount,
+                skillsCreated,
+              },
+            }),
+          );
+          router.push("/buckets?onboarding=1");
+          return;
         }
         if (classifyResult.enrichmentWarning) {
           emitLog(classifyResult.enrichmentWarning);
@@ -177,19 +203,39 @@ export function ProfileMenu({
           <button
             type="button"
             disabled={syncAction !== null}
-            onClick={() => void runSync("FULL", 10, "last10")}
+            onClick={() =>
+              void runSync(
+                hasBookmarks ? "AUTO" : "FULL",
+                undefined,
+                hasBookmarks ? "sync" : "initial",
+                hasBookmarks ? "Syncing latest bookmarks from X" : "Importing the latest 500 bookmarks from X"
+              )
+            }
             className="flex w-full items-center rounded-md px-3 py-2 text-sm hover:bg-black/[0.04] transition-colors disabled:opacity-50"
           >
-            {syncAction === "last10" ? "Pulling…" : "Pull last 10"}
+            {syncAction === (hasBookmarks ? "sync" : "initial")
+              ? "Pulling…"
+              : hasBookmarks
+                ? "Sync now"
+                : "Initial pull (latest 500)"}
           </button>
-          <button
-            type="button"
-            disabled={syncAction !== null}
-            onClick={() => void runSync("FULL", undefined, "full")}
-            className="flex w-full items-center rounded-md px-3 py-2 text-sm hover:bg-black/[0.04] transition-colors disabled:opacity-50"
-          >
-            {syncAction === "full" ? "Pulling…" : "Full pull"}
-          </button>
+          {hasBookmarks ? (
+            <button
+              type="button"
+              disabled={syncAction !== null}
+              onClick={() =>
+                void runSync(
+                  "FULL",
+                  undefined,
+                  "older",
+                  "Pulling older bookmarks from saved backfill cursor"
+                )
+              }
+              className="flex w-full items-center rounded-md px-3 py-2 text-sm hover:bg-black/[0.04] transition-colors disabled:opacity-50"
+            >
+              {syncAction === "older" ? "Pulling…" : "Pull older bookmarks"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void handleClearBookmarks()}
@@ -199,6 +245,7 @@ export function ProfileMenu({
           </button>
           <div className="my-1 border-t border-[hsl(var(--border))]" />
           {[
+            { href: "/buckets", label: "Buckets" },
             { href: "/skills", label: "Skills" },
             { href: "/logs", label: "Logs" },
             { href: "/triage", label: "Triage" },

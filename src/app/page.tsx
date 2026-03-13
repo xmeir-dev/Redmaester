@@ -192,14 +192,14 @@ function parseBookmarkMeta(
 }
 
 type ContentTypeFilter = "all" | "article" | "post";
-type ClassificationStatusFilter = "all" | "skill" | "reference" | "triage" | "unclassified";
+type ClassificationStatusFilter = "all" | "micro_skill" | "reference" | "triage" | "ignored" | "pending";
 
 type HomeSearchParams = {
   q?: string;
   filter?: string;
   type?: string;
   status?: string;
-  skill?: string;
+  bucket?: string;
 };
 
 function toTypeFilter(value: string | undefined): ContentTypeFilter {
@@ -215,10 +215,12 @@ function toTypeFilter(value: string | undefined): ContentTypeFilter {
 function toStatusFilter(value: string | undefined): ClassificationStatusFilter {
   switch (value) {
     case "skill":
+    case "micro_skill":
     case "reference":
     case "triage":
-    case "unclassified":
-      return value;
+    case "ignored":
+    case "pending":
+      return value === "skill" ? "micro_skill" : value;
     default:
       return "all";
   }
@@ -233,9 +235,12 @@ function parseLegacyFilter(value: string | undefined): {
     case "post":
       return { type: value, status: "all" };
     case "skill":
+      return { type: "all", status: "micro_skill" };
+    case "micro_skill":
     case "reference":
     case "triage":
-    case "unclassified":
+    case "ignored":
+    case "pending":
       return { type: "all", status: value };
     default:
       return { type: "all", status: "all" };
@@ -247,23 +252,28 @@ type BookmarkFromQuery = Awaited<ReturnType<typeof getBookmarksData>>[number];
 function deriveStatus(bookmark: BookmarkFromQuery): BookmarkStatusData {
   const classification = bookmark.classifications;
   const triageItems = bookmark.triageItems;
+  const primaryBucketAudience = bookmark.bucketAssignments[0]?.bucket.audience;
 
   let badge: BookmarkStatusData["badge"] = "Pending";
   if (classification) {
     const action = classification.action;
-    if (classification.classificationType === "enrichment_failed") {
-      badge = "Failed";
-    } else if (action === "auto_created") {
-      badge = "Skill";
+    if (action === "queued_micro_skill") {
+      badge = "Micro-skill";
+    } else if (classification.fallback && triageItems.length === 0) {
+      badge = "Pending";
+    } else if (action === "created_micro_skill" || action === "updated_micro_skill" || action === "user_approved") {
+      badge = "Micro-skill";
     } else if (action === "attached_reference") {
       badge = "Reference";
     } else if (triageItems.length > 0 || action === "staged_for_review") {
       badge = "Triaged";
-    } else if (classification.classificationType === "unrelated" || action === "no_action") {
-      badge = "Unrelated";
+    } else if (classification.roleType === "IGNORE" || classification.classificationType === "ignore" || action === "no_action") {
+      badge = "Ignored";
     } else {
-      badge = "Triaged";
+      badge = "Pending";
     }
+  } else if (primaryBucketAudience === "PERSONAL") {
+    badge = "Human";
   } else if (triageItems.length > 0) {
     badge = "Triaged";
   }
@@ -279,10 +289,12 @@ function deriveStatus(bookmark: BookmarkFromQuery): BookmarkStatusData {
   const classificationData = classification
     ? {
         type: classification.classificationType,
+        roleType: classification.roleType,
         action: classification.action,
         confidence: classification.confidence,
         rationale: classification.rationale,
-        skillName: classification.matchedSkill?.name ?? classification.extractedSkillName ?? null,
+        bucketName: classification.bucket?.displayName ?? classification.bucket?.name ?? null,
+        skillName: classification.targetSkill?.name ?? classification.extractedSkillName ?? null,
         fallback: classification.fallback,
       }
     : null;
@@ -316,32 +328,39 @@ export default async function HomePage({
   const rows = bookmarks.map((bookmark) => {
     const isTriaged = bookmark.triageItems.length > 0;
     const classification = bookmark.classifications;
-    const skillNames = classification?.matchedSkill ? [classification.matchedSkill.name] : [];
+    const primaryBucketAudience = bookmark.bucketAssignments[0]?.bucket.audience;
+    const bucketNames = bookmark.bucketAssignments.map((assignment) => assignment.bucket.displayName);
     const meta = parseBookmarkMeta(bookmark.rawJson, bookmark.text);
     const status: ClassificationStatusFilter = classification
-      ? classification.classificationType === "skill"
-        ? "skill"
-        : classification.classificationType === "reference"
+      ? classification.fallback && !isTriaged
+        ? "pending"
+        : classification.roleType === "MICRO_SKILL" || classification.action === "created_micro_skill" || classification.action === "updated_micro_skill"
+        ? "micro_skill"
+        : classification.roleType === "REFERENCE" || classification.classificationType === "reference"
           ? "reference"
           : isTriaged
             ? "triage"
-            : "unclassified"
+            : classification.roleType === "IGNORE" || classification.classificationType === "ignore"
+              ? "ignored"
+              : "pending"
+      : primaryBucketAudience === "PERSONAL"
+        ? "ignored"
       : isTriaged
         ? "triage"
-        : "unclassified";
+        : "pending";
     const type: "article" | "post" = meta.isXArticle ? "article" : "post";
 
     return {
       bookmark,
-      skillNames,
+      bucketNames,
       meta,
       status,
       type
     };
   });
 
-  const skills = Array.from(new Set(rows.flatMap((row) => row.skillNames))).sort((a, b) => a.localeCompare(b));
-  const activeSkill = params.skill && skills.includes(params.skill) ? params.skill : "";
+  const buckets = Array.from(new Set(rows.flatMap((row) => row.bucketNames))).sort((a, b) => a.localeCompare(b));
+  const activeBucket = params.bucket && buckets.includes(params.bucket) ? params.bucket : "";
 
   const filteredRows = rows.filter((row) => {
     if (activeType !== "all" && row.type !== activeType) {
@@ -352,7 +371,7 @@ export default async function HomePage({
       return false;
     }
 
-    if (activeSkill && !row.skillNames.includes(activeSkill)) {
+    if (activeBucket && !row.bucketNames.includes(activeBucket)) {
       return false;
     }
 
@@ -367,7 +386,8 @@ export default async function HomePage({
       row.bookmark.url,
       row.bookmark.id,
       row.meta.articleTitle ?? "",
-      row.skillNames.join(" ")
+      row.bucketNames.join(" "),
+      row.bookmark.classifications?.targetSkill?.name ?? ""
     ]
       .join(" ")
       .toLowerCase();
@@ -421,6 +441,7 @@ export default async function HomePage({
           }
           stats={[
             { label: "Bookmarks", value: data.metrics.bookmarkCount.toLocaleString() },
+            { label: "Buckets", value: data.metrics.bucketCount.toLocaleString() },
             { label: "Skills", value: data.metrics.skillCount.toLocaleString() },
             { label: "References", value: data.metrics.referenceCount.toLocaleString() },
             { label: "Pending", value: data.metrics.pendingClassificationCount.toLocaleString() },
@@ -428,21 +449,37 @@ export default async function HomePage({
             { label: "Budget left", value: formatUsd(data.metrics.budgetRemaining) },
           ]}
           actions={
-            <ProfileMenu connected={isConnected} username={username} displayName={displayName} />
+            <ProfileMenu
+              connected={isConnected}
+              username={username}
+              displayName={displayName}
+              hasBookmarks={bookmarks.length > 0}
+            />
           }
         />
       }
     >
       <div className="flex gap-6 items-start">
         <div className="flex-1 min-w-0 space-y-4">
+          {data.metrics.needsBucketOnboarding ? (
+            <div className="rounded-[var(--radius)] border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900/80">
+              <span className="font-medium">
+                Guided bucket setup is still waiting on your first real agent bucket
+              </span>
+              {" before agent classification can continue. "}
+              <a href="/buckets?onboarding=1" className="underline underline-offset-2">
+                Open guided setup
+              </a>
+            </div>
+          ) : null}
           {bookmarks.length > 0 && (
             <HomeFilters
               title="My bookmarks"
               query={params.q ?? ""}
               typeFilter={activeType}
               statusFilter={activeStatus}
-              skillFilter={activeSkill}
-              skills={skills}
+              bucketFilter={activeBucket}
+              buckets={buckets}
               resultsCount={filteredRows.length}
               totalCount={bookmarks.length}
             />
@@ -456,7 +493,7 @@ export default async function HomePage({
               <h3 className="text-lg font-medium text-black/70 mb-1">No bookmarks yet</h3>
               <p className="text-sm text-black/40 mb-6 max-w-sm">
                 {isConnected
-                  ? "Pull your bookmarks from X to get started with classification and skill extraction."
+                  ? "Run an initial pull to import the latest 500 bookmarks, approve one starter agent bucket, and then start agent classification."
                   : "Connect your X account to import your bookmarks."}
               </p>
               {isConnected ? (

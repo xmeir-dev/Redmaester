@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import type { Bookmark, BookmarkEnrichment } from "@prisma/client";
 import {
   classifyBookmark,
-  extractSkillContent,
+  generateMicroSkillContent,
 } from "@/lib/classification/classifier";
 import { fetchUrlContent } from "@/lib/enrichment/content-fetcher";
-import { appConfig } from "@/lib/domain/config";
 
 const JINA_TIMEOUT_MS = 30_000;
 const MAX_CONTENT_CHARS = 50_000;
@@ -68,24 +67,24 @@ async function fetchContent(url: string) {
   return result; // Return original failure
 }
 
-const SEED_SKILLS = [
+const SEED_BUCKETS = [
   {
-    id: "__seed__agent-skills",
-    name: "agent-skills",
-    description:
-      "General agent skill configurations, system prompts, and SKILL.md files",
+    id: "__seed__agents",
+    name: "agents",
+    displayName: "Agents",
+    description: "AI agents, prompting, automation, system prompts, and skill design.",
   },
   {
-    id: "__seed__claude-code",
-    name: "claude-code",
-    description:
-      "Claude Code configurations, custom instructions, and slash commands",
+    id: "__seed__ux-ui",
+    name: "ux-ui",
+    displayName: "UX UI",
+    description: "UX, UI, and product experience patterns.",
   },
   {
-    id: "__seed__prompt-engineering",
-    name: "prompt-engineering",
-    description:
-      "Prompt engineering techniques, patterns, and best practices for AI agents",
+    id: "__seed__growth",
+    name: "growth",
+    displayName: "Growth",
+    description: "Growth, acquisition, messaging, and distribution strategies.",
   },
 ];
 
@@ -182,19 +181,31 @@ export async function POST(request: Request) {
   const classification = await classifyBookmark({
     bookmark,
     enrichments,
-    existingSkills: SEED_SKILLS,
+    existingBuckets: SEED_BUCKETS,
   });
 
   let extractedContent: string | undefined;
 
-  if (
-    classification.type === "skill" &&
-    classification.confidence >= appConfig.classificationReviewThreshold
-  ) {
-    const extraction = await extractSkillContent(bookmark, enrichments);
+  if (classification.roleType === "MICRO_SKILL") {
+    const bucket = {
+      id: "demo_bucket",
+      name: classification.bucketName,
+      displayName: classification.bucketDisplayName,
+      description: classification.bucketDescription,
+      dirtySince: null,
+      lastMasterSynthesizedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const extraction = await generateMicroSkillContent({
+      bookmark,
+      enrichments,
+      bucket,
+      skillName: classification.microSkillName ?? `${classification.bucketName}-micro-skill`,
+    });
     if (extraction) {
       extractedContent = extraction.content;
-      classification.extractedSkillContent = extractedContent;
     }
   }
 

@@ -4,11 +4,10 @@ import { Check, ChevronRight, Newspaper, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 
 export type BookmarkStatusData = {
-  badge: "Skill" | "Reference" | "Triaged" | "Pending" | "Unrelated" | "Failed" | "In Queue" | "Enriching" | "Classifying" | "Done";
+  badge: "Micro-skill" | "Reference" | "Triaged" | "Pending" | "Ignored" | "Human" | "Failed" | "In Queue" | "Enriching" | "Classifying" | "Done";
   enrichments: {
     url: string;
     title: string | null;
@@ -18,9 +17,11 @@ export type BookmarkStatusData = {
   }[];
   classification: {
     type: string;
+    roleType?: string | null;
     action: string;
     confidence: number;
     rationale: string | null;
+    bucketName?: string | null;
     skillName: string | null;
     fallback: boolean;
   } | null;
@@ -51,10 +52,10 @@ const STEP_TO_BADGE: Record<string, BookmarkStatusData["badge"]> = {
   queue: "In Queue",
   enriching: "Enriching",
   classifying: "Classifying",
-  skill: "Skill",
+  micro_skill: "Micro-skill",
   reference: "Reference",
   triaged: "Triaged",
-  unrelated: "Unrelated",
+  ignored: "Ignored",
   failed: "Failed",
   done: "Done",
 };
@@ -384,11 +385,12 @@ function TypeIcon({ type }: { type: BookmarkTableRow["type"] }) {
 }
 
 const badgeStyles: Record<BookmarkStatusData["badge"], { dot: string; text: string }> = {
-  Skill: { dot: "bg-emerald-500", text: "text-black/60" },
+  "Micro-skill": { dot: "bg-emerald-500", text: "text-black/60" },
   Reference: { dot: "bg-blue-500", text: "text-black/60" },
   Triaged: { dot: "bg-amber-500", text: "text-black/60" },
   Pending: { dot: "bg-black/20", text: "text-black/30" },
-  Unrelated: { dot: "bg-black/15", text: "text-black/25" },
+  Ignored: { dot: "bg-black/15", text: "text-black/25" },
+  Human: { dot: "bg-sky-500", text: "text-sky-700/80" },
   Failed: { dot: "bg-red-400", text: "text-red-400/70" },
   "In Queue": { dot: "bg-black/20 animate-pulse", text: "text-black/30" },
   Enriching: { dot: "bg-amber-400 animate-pulse", text: "text-amber-600/70" },
@@ -402,10 +404,10 @@ const OVERLAY_LABEL: Record<string, string> = {
   queue: "Queue",
   enriching: "Enriching\u2026",
   classifying: "Classifying\u2026",
-  skill: "Skill",
+  micro_skill: "Micro-skill",
   reference: "Reference",
   triaged: "Triaged",
-  unrelated: "Unrelated",
+  ignored: "Ignored",
   failed: "Failed",
   done: "Done",
 };
@@ -479,13 +481,19 @@ function StatusHoverCard({ status }: { status: BookmarkStatusData }) {
       {status.classification ? (
         <div className="space-y-1.5">
           <div className="font-medium text-black/70 uppercase tracking-wider text-[10px]">Classification</div>
-          <div className="space-y-0.5 text-black/50">
-            <Row label="Type" value={status.classification.type} />
-            <Row label="Action" value={status.classification.action} />
-            <Row label="Confidence" value={`${Math.round(status.classification.confidence * 100)}%`} />
-            {status.classification.skillName ? (
-              <Row label="Skill" value={status.classification.skillName} />
-            ) : null}
+	          <div className="space-y-0.5 text-black/50">
+	            <Row label="Type" value={status.classification.type} />
+	            {status.classification.roleType ? (
+	              <Row label="Role" value={status.classification.roleType} />
+	            ) : null}
+	            <Row label="Action" value={status.classification.action} />
+	            <Row label="Confidence" value={`${Math.round(status.classification.confidence * 100)}%`} />
+	            {status.classification.bucketName ? (
+	              <Row label="Bucket" value={status.classification.bucketName} />
+	            ) : null}
+	            {status.classification.skillName ? (
+	              <Row label="Skill" value={status.classification.skillName} />
+	            ) : null}
             {status.classification.rationale ? (
               <div className="pt-0.5">
                 <span className="text-black/30">Rationale: </span>

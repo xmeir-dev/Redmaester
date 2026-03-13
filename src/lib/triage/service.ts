@@ -1,4 +1,4 @@
-import { TriageStatus } from "@prisma/client";
+import { BookmarkRoleType, SkillKind, TriageStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
 
@@ -84,12 +84,25 @@ export async function resolveSkillReview(
     .filter((l: string) => !l.startsWith("#"));
   const description = lines[0]?.slice(0, 200) ?? `Skill: ${kebabName}`;
 
+  const masterSkill = classification?.bucketId
+    ? await prisma.skill.findFirst({
+        where: {
+          bucketId: classification.bucketId,
+          kind: SkillKind.MASTER
+        },
+        select: { id: true }
+      })
+    : null;
+
   const skill = await prisma.skill.create({
     data: {
       name: kebabName,
       content: skillContent,
       description,
       source: "bookmark",
+      kind: SkillKind.MICRO,
+      bucketId: classification?.bucketId ?? null,
+      parentSkillId: masterSkill?.id,
       sourceBookmarkId: triageItem.tweetId
     }
   });
@@ -97,7 +110,12 @@ export async function resolveSkillReview(
   if (classification) {
     await prisma.bookmarkClassification.update({
       where: { id: classification.id },
-      data: { action: "user_approved", matchedSkillId: skill.id }
+      data: {
+        action: "user_approved",
+        classificationType: "micro_skill",
+        roleType: BookmarkRoleType.MICRO_SKILL,
+        targetSkillId: skill.id
+      }
     });
   }
 

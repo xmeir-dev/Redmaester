@@ -1,4 +1,4 @@
-import type { Skill } from "@prisma/client";
+import { SkillKind, type Skill } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
 
@@ -45,6 +45,9 @@ export async function createSkill(data: {
   content: string;
   source?: string;
   sourceBookmarkId?: string;
+  kind?: SkillKind;
+  bucketId?: string;
+  parentSkillId?: string;
 }): Promise<Skill> {
   return prisma.skill.create({
     data: {
@@ -52,6 +55,9 @@ export async function createSkill(data: {
       content: data.content,
       description: summarizeContent(data.content),
       source: data.source ?? "user",
+      kind: data.kind ?? SkillKind.MICRO,
+      bucketId: data.bucketId,
+      parentSkillId: data.parentSkillId,
       sourceBookmarkId: data.sourceBookmarkId
     }
   });
