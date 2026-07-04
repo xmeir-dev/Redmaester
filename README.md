@@ -4,6 +4,8 @@
 
 Live app: [redmaester.vercel.app](https://redmaester.vercel.app) — try the public [tweet classifier demo](https://redmaester.vercel.app/demo/classify) without signing in.
 
+![Redmaester — bookmarks dashboard](docs/screenshot.png)
+
 ## What it is
 
 People bookmark far more than they ever read. Redmaester connects to your X (Twitter) account, syncs your bookmarks, and runs them through an AI pipeline that turns raw saved posts into a knowledge base your AI agents can actually use:
