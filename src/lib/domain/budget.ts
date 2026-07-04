@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
 import { appConfig, currentMonthKey } from "@/lib/domain/config";
 
+// Sum of this month's estimated model spend. Rows logged by the keyword
+// fallback router are excluded: that router classifies without calling a
+// model, so its bookkeeping entries must not eat into the real AI budget.
 export async function getCurrentMonthSpend(): Promise<number> {
   const monthKey = currentMonthKey();
   const aggregate = await prisma.modelUsage.aggregate({

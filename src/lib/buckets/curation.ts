@@ -86,6 +86,12 @@ function suggestionId(parts: string[]): string {
     .join(":");
 }
 
+// Token-overlap similarity between two buckets (name + description), in
+// [0, ~1]: shared tokens divided by the larger token set, plus a 1.5 bonus
+// when one bucket's name contains the other's. Used to decide whether a
+// SUGGESTED bucket should merge into an existing REAL one (threshold 0.34
+// below — tuned by eye to catch "UX" vs "UX & UI" without merging
+// unrelated topics).
 function scoreSimilarity(source: BucketCurationBucket, target: BucketCurationBucket): number {
   const sourceTokens = new Set(
     tokenize(`${source.displayName} ${source.description}`),
@@ -305,6 +311,12 @@ function buildInstructionFallbackSuggestions(
   return [];
 }
 
+// Model-free curation suggestions (used when the AI curator is unavailable
+// or as a baseline). Rules:
+// - no REAL buckets yet → suggest promoting the 3 largest SUGGESTED ones
+// - SUGGESTED bucket similar to a REAL one (score >= 0.34) → suggest merge
+// - otherwise, SUGGESTED buckets with >= 8 bookmarks earn a promote
+// Capped at 6 suggestions so the curation UI stays scannable.
 export function buildHeuristicBucketSuggestions(
   buckets: BucketCurationBucket[],
 ): BucketCurationSuggestion[] {

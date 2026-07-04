@@ -1,3 +1,5 @@
+// Legacy route from an earlier IA — forwards old folder links to the home
+// page filter so saved URLs keep working.
 import { redirect } from "next/navigation";
 
 export default async function XFoldersPage({

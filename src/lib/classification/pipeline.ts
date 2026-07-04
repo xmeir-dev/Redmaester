@@ -1,3 +1,15 @@
+// Classification pipeline — the budget-guarded core of Redmaester.
+//
+// runClassificationPipeline() drives five stages, each capped by the monthly
+// budget and a 45s wall clock so it fits inside a serverless invocation:
+//   1. Discovery       — assign a primary bucket to bookmarks that lack one
+//   2. Enrichment      — fetch content behind linked URLs (fallback chain)
+//   3. Classification  — bucket + role (REFERENCE / MICRO_SKILL / IGNORE)
+//   4. Micro-skills    — generate queued micro-skills one at a time
+//   5. Master skills   — re-synthesize the master doc of "dirty" buckets
+// Work left over when time or budget runs out simply stays pending and is
+// picked up by the next run (hourly cron or manual trigger).
+
 import {
   BookmarkRoleType,
   Prisma,
@@ -91,6 +103,7 @@ const MAX_WALL_CLOCK_MS = 45 * 1000;
 const MIN_DIRECT_CLASSIFICATION_LENGTH = 100;
 const MIN_DIRECT_CLASSIFICATION_WORDS = 12;
 
+// Bookmarks that still need stage 1: no primary bucket assigned yet.
 function pendingBucketDiscoveryWhere(): Prisma.BookmarkWhereInput {
   return {
     bucketAssignments: {
@@ -101,6 +114,8 @@ function pendingBucketDiscoveryWhere(): Prisma.BookmarkWhereInput {
   };
 }
 
+// Bookmarks that still need stage 3: never classified, missing a bucket or
+// role, or only classified by the free keyword fallback (worth an AI retry).
 function pendingBookmarkWhere(): Prisma.BookmarkWhereInput {
   return {
     OR: [
@@ -112,6 +127,7 @@ function pendingBookmarkWhere(): Prisma.BookmarkWhereInput {
   };
 }
 
+// Classifications waiting for stage 4: marked MICRO_SKILL but no skill built.
 function queuedMicroSkillWhere(): Prisma.BookmarkClassificationWhereInput {
   return {
     roleType: BookmarkRoleType.MICRO_SKILL,
@@ -120,6 +136,8 @@ function queuedMicroSkillWhere(): Prisma.BookmarkClassificationWhereInput {
   };
 }
 
+// Same as pendingBookmarkWhere, but limited to buckets whose audience is
+// AGENT — only those spend budget on full AI classification.
 function agentPendingBookmarkWhere(
   agentBucketIds: string[],
 ): Prisma.BookmarkWhereInput {

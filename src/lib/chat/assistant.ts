@@ -42,6 +42,10 @@ export type ChatTurn = {
   content: string;
 };
 
+// Hand-tuned query expansion: when a question mentions one of these keys,
+// its related terms are added to the search tokens so "figma" also matches
+// bookmarks about auto-layout, prototyping, etc. Cheap stand-in for
+// embeddings — good enough because scoring runs over the whole corpus.
 const SYNONYM_MAP: Record<string, string[]> = {
   figma: ["figma", "figjam", "ui", "ux", "design", "component", "components", "autolayout", "auto", "layout", "prototype", "wireframe"],
   marketing: ["marketing", "growth", "distribution", "positioning", "messaging", "acquisition", "conversion", "seo", "ads"],
@@ -148,6 +152,12 @@ function extractTitle(rawJson: string): string | undefined {
   }
 }
 
+// Relevance score for one bookmark against the expanded query. Weighted
+// keyword counting across fields: title matches count most, then the AI
+// classification labels, then tweet text / rationale / URL. Exact quoted
+// phrases get an extra boost, and very recent bookmarks a small tiebreaker.
+// Counts are capped at 3 per token (see countContains) so one spammy
+// bookmark can't dominate the ranking.
 function scoreItem(
   item: {
     text: string;
@@ -399,6 +409,10 @@ function buildFinalPrompt(
     .join("\n");
 }
 
+// Map-reduce answering for evidence sets too large for one prompt: each
+// chunk of bookmarks is summarized against the question in parallel (map),
+// then a final pass synthesizes the chunk summaries into one cited answer
+// (reduce). Chunk size / count are tunable via CHAT_CHUNK_SIZE / CHAT_MAX_CHUNKS.
 async function synthesizeChunked(
   question: string,
   history: ChatTurn[],
@@ -427,6 +441,11 @@ async function synthesizeChunked(
   return { answer, analyzedCount };
 }
 
+// Builds the evidence set for a question: loads the ENTIRE bookmark corpus
+// (plus classifications), expands the query with synonyms and recent user
+// turns, scores every bookmark with scoreItem, and keeps the top
+// CHAT_EVIDENCE_LIMIT. Full-corpus scoring keeps recall high without a
+// vector index; it stays fast because scoring is pure string counting.
 async function collectContext(question: string, history: ChatTurn[]): Promise<ContextResult> {
   const historyQuery = history
     .filter((turn) => turn.role === "user")
