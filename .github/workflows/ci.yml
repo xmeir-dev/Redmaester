@@ -27,6 +27,23 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Throwaway Postgres for the E2E smoke test: the app's pages query Prisma
+    # at runtime, so the started server needs a reachable database. The
+    # credentials match the placeholder DATABASE_URL above.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: placeholder
+          POSTGRES_PASSWORD: placeholder
+          POSTGRES_DB: placeholder
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U placeholder"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,6 +65,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Create database schema
+        run: npx prisma db push --skip-generate
 
       - name: Install Playwright browser (chromium)
         run: npx playwright install chromium --with-deps
