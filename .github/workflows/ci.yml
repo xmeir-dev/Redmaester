@@ -1,0 +1,56 @@
+name: ci
+
+# Standard test gate for a meirlabs project (meirlabs testing standard v1):
+# typecheck, unit/component tests (Vitest), production build, then an E2E
+# smoke test (Playwright).
+#
+# The env vars below are harmless placeholders so `prisma generate`,
+# `next build`, and the Playwright smoke test can run without a real
+# database or Anthropic key. Replace with real staging values (or repo
+# secrets) if a test needs live data.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+  DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+  ANTHROPIC_API_KEY: "placeholder"
+  USE_MOCK_X: "true"
+  CRON_SECRET: "placeholder"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit + component tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install chromium --with-deps
+
+      - name: E2E smoke test
+        run: npm run test:e2e

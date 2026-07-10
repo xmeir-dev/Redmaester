@@ -18,3 +18,8 @@ prisma/init.sql
 .redmaester-sync-state.json
 tsconfig.tsbuildinfo
 .vercel
+
+# Playwright output
+test-results/
+playwright-report/
+blob-report/
